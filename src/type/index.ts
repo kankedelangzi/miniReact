@@ -1,43 +1,18 @@
 
 
 export let REACT_ELEMENT_TYPE = 0xeac7;
-export type IReactElement = {
- 
-  $$typeof: number,
-  type: string|null,
-  key: string |null,
-  ref: string|null,
-  props: {[key: string]: any},
-  _owner: string,
-};
+
 export type ReactText = string | number;
 export const HostComponent = 5;
 export type ReactNode = IReactElement|ReactText
 export type ReactEmpty = null | void | boolean;
 export type ReactNodeList = ReactEmpty | ReactNode;
-
-export type RootType = {
-  render(children: ReactNodeList): void,
-  unmount(): void,
-  _internalRoot: FiberRoot,
-};
-
-export interface Container extends Element {
-  _reactRootContainer: RootType
-}
-export type WorkTag =
-  | 0
-  | 1
-  | 2
-  | 3
-  | 4
-  | 5
-  | 6
-  | 7
-  | 8
-  | 9
-  | 10
-  | 11
+export const HostRoot = 3;
+export type RootTag = 0 | 1 | 2;
+export const LegacyRoot = 0;
+export const BlockingRoot = 1;
+export const ConcurrentRoot = 2;
+export type WorkTag =| 0| 1| 2| 3| 4| 5| 6| 7 | 8| 9| 10| 11
   | 12
   | 13
   | 14
@@ -52,6 +27,54 @@ export type WorkTag =
   | 23
   | 24;
 
+
+  export type ReactPriorityLevel = 99 | 98 | 97 | 96 | 95 | 90|-1;
+
+export type TypeOfMode = number;
+
+export const NoMode = /*            */ 0b000000;
+// TODO: Remove BlockingMode and ConcurrentMode by reading from the root tag instead
+export const BlockingMode = /*      */ 0b000001;
+export const ConcurrentMode = /*    */ 0b000010;
+export const ProfileMode = /*       */ 0b000100;
+export const DebugTracingMode = /*  */ 0b001000;
+export const StrictLegacyMode = /*  */ 0b010000;
+export const StrictEffectsMode = /* */ 0b100000;
+
+
+export type Lanes = number;
+export type Lane = number;
+export type LaneMap<T> = Array<T>;
+
+
+
+
+
+
+
+export type IReactElement = {
+ 
+  $$typeof: number,
+  type: string|null,
+  key: string |null,
+  ref: string|null,
+  props: {[key: string]: any},
+  _owner: string,
+};
+
+export type RootType = {
+  render(children: ReactNodeList): void,
+  unmount(): void,
+  _internalRoot: FiberRoot,
+};
+
+export interface Container extends Element {
+  _reactRootContainer: RootType
+  [key: string]: any
+}
+
+
+export type Cache = Map<() => any, any>;
 
 export interface Fiber {
   // // These first fields are conceptually members of an Instance. This used to
@@ -109,10 +132,10 @@ export interface Fiber {
   // memoizedProps: any, // The props used to create the output.
 
   // // A queue of state updates and callbacks.
-  // updateQueue: mixed,
+  updateQueue: mixed,
 
   // // The state used to create the output
-  // memoizedState: any,
+  memoizedState: any,
 
   // // Dependencies (contexts, events) for this fiber, if it has any
   // dependencies: Dependencies | null,
@@ -123,7 +146,7 @@ export interface Fiber {
   // // parent. Additional flags can be set at creation time, but after that the
   // // value should remain unchanged throughout the fiber's lifetime, particularly
   // // before its child fibers are created.
-  // mode: TypeOfMode,
+  mode: TypeOfMode,
 
   // // Effect
   // flags: Flags,
@@ -183,14 +206,14 @@ export interface Fiber {
 };
 export interface BaseFiberRootProperties {
   // // The type of root (legacy, batched, concurrent, etc.)
-  // tag: RootTag,
+  tag: RootTag,
 
   // // Any additional information from the host associated with this root.
-  // containerInfo: any,
+  containerInfo: any,
   // // Used only by persistent updates.
   // pendingChildren: any,
   // // The currently active root fiber. This is the mutable root of the tree.
-  current: Fiber,
+  current: Fiber|null,
 
   // pingCache: WeakMap<Wakeable, Set<mixed>> | Map<Wakeable, Set<mixed>> | null,
 
@@ -200,10 +223,10 @@ export interface BaseFiberRootProperties {
   // // it's superseded by a new one.
   // timeoutHandle: TimeoutHandle | NoTimeout,
   // // Top context object, used by renderSubtreeIntoContainer
-  // context: Object | null,
-  // pendingContext: Object | null,
+  context: Object | null,
+  pendingContext: Object | null,
   // // Determines if we should attempt to hydrate on the initial mount
-  // +hydrate: boolean,
+  hydrate: boolean,
 
   // // Used by useMutableSource hook to avoid tearing during hydration.
   // mutableSourceEagerHydrationData?: Array<
@@ -228,10 +251,48 @@ export interface BaseFiberRootProperties {
   // entangledLanes: Lanes,
   // entanglements: LaneMap<Lanes>,
 
-  // pooledCache: Cache | null,
+  pooledCache: Cache | null,
   // pooledCacheLanes: Lanes,
 };
 
 export interface FiberRoot extends BaseFiberRootProperties {
   
+};
+
+export type RootOptions = {
+  hydrate?: boolean,
+  hydrationOptions?: {
+    onHydrated?: (suspenseNode: Comment) => void,
+    onDeleted?: (suspenseNode: Comment) => void,
+    mutableSources?: any,
+  },
+  unstable_strictModeLevel?: number,
+};
+type mixed = any
+
+
+export type Update<State> = {
+  // TODO: Temporary field. Will remove this by storing a map of
+  // transition -> event time on the root.
+  eventTime: number,
+  lane: Lane,
+
+  tag: 0 | 1 | 2 | 3,
+  payload: any,
+  callback: (() => mixed) | null,
+
+  next: Update<State> | null,
+};
+export type SharedQueue<State> = {
+  pending: Update<State> | null,
+  interleaved: Update<State> | null,
+  lanes: Lanes,
+};
+
+export type UpdateQueue<State> = {
+  baseState: State,
+  firstBaseUpdate: Update<State> | null,
+  lastBaseUpdate: Update<State> | null,
+  shared: SharedQueue<State>,
+  effects: Array<Update<State>> | null,
 };
