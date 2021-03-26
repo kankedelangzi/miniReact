@@ -6,7 +6,7 @@ import ReactDOM from './reactDom/index';
 
 const node = <div>
   <span>hello</span>
-  <span>world</span>
+  
   
 </div>
 // 

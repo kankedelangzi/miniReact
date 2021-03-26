@@ -1,9 +1,10 @@
-import { RootOptions, RootType, Container, 
-  LegacyRoot, RootTag, FiberRoot, 
-  Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,
-  HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode}  from '../type/index'
+import { RootOptions, RootType, Container, HostText,
+  LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,
+  Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,IndeterminateComponent,
+  HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap}  from '../type/index'
 import { markContainerAsRoot  } from './tools'
 import { initializeUpdateQueue } from './update'
+import { NoLanes, createLaneMap } from './lane'
 export function createLegacyRoot(
   container: Container,
   options?: RootOptions,
@@ -119,6 +120,14 @@ class FiberRootNode implements FiberRoot {
   pooledCache: Cache | null;
   context: Object | null;
   pendingContext: Object | null;
+  pendingLanes: number;
+  pingedLanes: number;
+  suspendedLanes: number;
+  expiredLanes: number;
+  mutableReadLanes: number;
+  eventTimes: LaneMap<number>;
+  finishedWork: Fiber | null;
+  finishedLanes: number;
   constructor(containerInfo: Container, tag: RootTag, hydrate: boolean) {
     this.current = null;
     this.tag = tag;
@@ -126,21 +135,35 @@ class FiberRootNode implements FiberRoot {
     // this.pendingChildren = null;
     // this.current = null;
     // this.pingCache = null;
-    // this.finishedWork = null;
+    this.finishedWork = null;
     // this.timeoutHandle = noTimeout;
+    this.pendingLanes = NoLanes;
+    this.suspendedLanes = NoLanes;
+    this.pingedLanes = NoLanes;
+    this.expiredLanes = NoLanes;
+    this.mutableReadLanes = NoLanes;
+    this.finishedLanes = NoLanes;
+  
+    // this.entangledLanes = NoLanes;
+    // this.entanglements = createLaneMap(NoLanes);
+    this.eventTimes = createLaneMap(NoLanes);
     this.context = null;
     this.pendingContext = null;
     this.pooledCache = null;
     this.hydrate = hydrate;
 
   }
+ 
+  
+ 
+  
   
  
   
   
   
 }
-const createFiber = function(
+export const createFiber = function(
   tag: WorkTag,
   pendingProps: any,
   key: null | string,
@@ -149,6 +172,7 @@ const createFiber = function(
   // $FlowFixMe: the shapes are exact here but Flow doesn't like constructors
   return new FiberNode(tag, pendingProps, key, mode);
 };
+
 export function createHostRootFiber(
   tag: RootTag,
   strictModeLevelOverride: null | number,
@@ -175,6 +199,11 @@ class FiberNode implements Fiber {
   mode: number;
   memoizedState: any;
   updateQueue: any;
+  alternate: Fiber | null;
+  type: any;
+  pendingProps: any;
+  memoizedProps: any;
+  flags: number;
   constructor (
     tag: WorkTag,
     pendingProps: any,
@@ -189,8 +218,49 @@ class FiberNode implements Fiber {
     this.sibling = null;
     this.index = 0;
     this.mode = mode;
+    this.alternate = null;
+    this.flags = NoFlags
+    this.lanes = NoLanes;
+    this.childLanes = NoLanes;
+    this.deletions = null
+    this.key = null;
   }
-  
-  
+  key: string | null;
+  deletions: Fiber[] | null;
+  lanes: number;
+  childLanes: number;
+  elementType: any;
+}
 
+export function createFiberFromTypeAndProps(
+  type: any, // React$ElementType
+  key: null | string,
+  pendingProps: any,
+  owner: null | Fiber,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+
+  let fiberTag: WorkTag = IndeterminateComponent;
+  let resolvedType = type;
+  if (typeof type === 'string') {
+    fiberTag = HostComponent;
+  } 
+  console.log('createFiberFromTypeAndProps')
+  const fiber = createFiber(fiberTag, pendingProps, key, mode);
+  fiber.elementType = type;
+  fiber.type = resolvedType;
+  fiber.lanes = lanes;
+
+  return fiber;
+}
+
+export function createFiberFromText(
+  content: string,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+  const fiber = createFiber(HostText, content, null, mode);
+  fiber.lanes = lanes;
+  return fiber;
 }

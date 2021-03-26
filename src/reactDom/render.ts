@@ -3,6 +3,7 @@ import { getPublicRootInstance, requestEventTime, getContextForSubtree} from './
 import { createLegacyRoot } from './create'
 import { requestUpdateLane} from './lane'
 import { createUpdate, enqueueUpdate} from './update'
+import { scheduleUpdateOnFiber } from '../reconcile'
 interface IlegacyRenderSubtreeIntoContainerProps {
   parentComponent: any, // 父组件
   children: ReactNodeList, // 就是babel翻译后的createElement返回的ReactElement节点
@@ -113,7 +114,7 @@ export function updateContainer(
   update.payload = {element};
   enqueueUpdate(current, update, lane);
 
-  // const root = scheduleUpdateOnFiber(current, lane, eventTime);
+  const root = scheduleUpdateOnFiber(current, lane, eventTime);
   // if (root !== null) {
   //   entangleTransitions(root, current, lane);
   // }

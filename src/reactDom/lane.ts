@@ -1,5 +1,6 @@
-import { Fiber, Lane, Lanes, BlockingMode, NoMode, ConcurrentMode } from '../type/index'
+import { Fiber, Lane, Lanes,FiberRoot,BlockingMode, NoMode, ConcurrentMode, LaneMap } from '../type/index'
 import { getCurrentPriorityLevel, ImmediatePriority as ImmediateSchedulerPriority} from './tools'
+
 export const TotalLanes = 31;
 
 export const NoLanes: Lanes = /*                        */ 0b0000000000000000000000000000000;
@@ -47,7 +48,7 @@ export const SelectiveHydrationLane: Lane = /*          */ 0b0001000000000000000
 const NonIdleLanes = /*                                 */ 0b0001111111111111111111111111111;
 
 export const IdleHydrationLane: Lane = /*               */ 0b0010000000000000000000000000000;
-const IdleLane: Lanes = /*                              */ 0b0100000000000000000000000000000;
+export const IdleLane: Lanes = /*                              */ 0b0100000000000000000000000000000;
 
 export const OffscreenLane: Lane = /*                   */ 0b1000000000000000000000000000000;
 
@@ -99,4 +100,26 @@ export function requestUpdateLane(fiber: Fiber): Lane {
   }
   // todo
   return SyncLane;
+}
+export function createLaneMap<T>(initial: T): LaneMap<T> {
+  // Intentionally pushing one by one.
+  // https://v8.dev/blog/elements-kinds#avoid-creating-holes
+  const laneMap = [];
+  for (let i = 0; i < TotalLanes; i++) {
+    laneMap.push(initial);
+  }
+  return laneMap;
+}
+
+
+// 当前不完整
+export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes{
+  const pendingLanes = root.pendingLanes;
+  if (pendingLanes === NoLanes) {
+    // return_highestLanePriority = NoLanePriority;
+    return NoLanes;
+  }
+  let nextLanes = NoLanes;
+  return  nextLanes;
+
 }

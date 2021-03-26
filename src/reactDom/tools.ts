@@ -1,7 +1,6 @@
-import { FiberRoot, HostComponent, Fiber, Container, ReactPriorityLevel}  from '../type/index'
+import { FiberRoot, HostComponent, Fiber, Container, ReactPriorityLevel, Lane, Lanes, Props}  from '../type/index'
 import Scheduler from '../scheduler'
-
-
+import {  IdleLane, NoLanes } from './lane'
 const {
 
   unstable_getCurrentPriorityLevel: Scheduler_getCurrentPriorityLevel,
@@ -97,4 +96,70 @@ export function getContextForSubtree(
   // }
 
   // return parentContext;
+}
+
+//markRootUpdated 将updateLane更新到pendingLanes， 并将suspendedLanes ，
+//pingedLanes 首先与小于的updateLane(updateLane -1)区并，再进行更行, 并更新updateLane 对应的eventTime
+export function markRootUpdated(
+  root: FiberRoot,
+  updateLane: Lane,
+  eventTime: number,
+) {
+  root.pendingLanes |= updateLane;
+
+  // If there are any suspended transitions, it's possible this new update
+  // could unblock them. Clear the suspended lanes so that we can try rendering
+  // them again.
+  //
+  // TODO: We really only need to unsuspend only lanes that are in the
+  // `subtreeLanes` of the updated fiber, or the update lanes of the return
+  // path. This would exclude suspended updates in an unrelated sibling tree,
+  // since there's no way for this update to unblock it.
+  //
+  // We don't do this if the incoming update is idle, because we never process
+  // idle updates until after all the regular updates have finished; there's no
+  // way it could unblock a transition.
+  if (updateLane !== IdleLane) {
+    root.suspendedLanes = NoLanes;
+    root.pingedLanes = NoLanes;
+  }
+
+  const eventTimes = root.eventTimes;
+  const index = laneToIndex(updateLane);
+  // We can always overwrite an existing timestamp because we prefer the most
+  // recent event, and we assume time is monotonically increasing.
+  eventTimes[index] = eventTime;
+}
+
+const clz32 = Math.clz32 ? Math.clz32 : clz32Fallback;
+function pickArbitraryLaneIndex(lanes: Lanes) {
+  return 31 - clz32(lanes);
+}
+
+function laneToIndex(lane: Lane) {
+  return pickArbitraryLaneIndex(lane);
+}
+const log = Math.log;
+const LN2 = Math.LN2;
+function clz32Fallback(lanes: Lanes | Lane) {
+  if (lanes === 0) {
+    return 32;
+  }
+  return (31 - ((log(lanes) / LN2) | 0)) | 0;
+}
+
+export function shouldSetTextContent(type: string, props: Props): boolean {
+  if(!props) {
+    return false
+  }
+  return (
+    type === 'textarea' ||
+    type === 'option' ||
+    type === 'noscript' ||
+    typeof props.children === 'string' ||
+    typeof props.children === 'number' ||
+    (typeof props.dangerouslySetInnerHTML === 'object' &&
+      props.dangerouslySetInnerHTML !== null &&
+      props.dangerouslySetInnerHTML.__html != null)
+  );
 }
