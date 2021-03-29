@@ -224,7 +224,9 @@ class FiberNode implements Fiber {
     this.childLanes = NoLanes;
     this.deletions = null
     this.key = null;
+    this.subtreeFlags = 0
   }
+  subtreeFlags: number;
   key: string | null;
   deletions: Fiber[] | null;
   lanes: number;

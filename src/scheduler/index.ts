@@ -5,9 +5,13 @@ var currentPriorityLevel = NormalPriority;
 function unstable_getCurrentPriorityLevel() {
   return currentPriorityLevel;
 }
+function unstable_runWithPriority(priorityLevel: any, eventHandler: any) {
+  console.log(priorityLevel)
+  return eventHandler();
+}
 export default {
   unstable_ImmediatePriority: ImmediatePriority,
-  unstable_runWithPriority: null,
+  unstable_runWithPriority: unstable_runWithPriority,
   unstable_scheduleCallback: null,
   unstable_cancelCallback: null,
   unstable_shouldYield: null,

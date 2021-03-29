@@ -10,6 +10,8 @@ export type ReactEmpty = null | void | boolean;
 export type ReactNodeList = ReactEmpty | ReactNode;
 export const HostRoot = 3;
 export const HostText = 6;
+export const HostPortal = 4; 
+export const DehydratedFragment = 18;
 export type RootTag = 0 | 1 | 2;
 export const LegacyRoot = 0;
 export const BlockingRoot = 1;
@@ -72,7 +74,30 @@ export const ShouldCapture = /*                */ 0b00000100000000000000;
 // TODO (effects) Remove this bit once the new reconciler is synced to the old.
 export const PassiveUnmountPendingDev = /*     */ 0b00001000000000000000;
 export const ForceUpdateForLegacySuspense = /* */ 0b00010000000000000000;
+export const enableCreateEventHandleAPI = false;
 
+
+export const BeforeMutationMask =
+  // TODO: Remove Update flag from before mutation phase by re-landing Visiblity
+  // flag logic (see #20043)
+  Update |
+  Snapshot |
+  (enableCreateEventHandleAPI
+    ? // createEventHandle needs to visit deleted and hidden trees to
+      // fire beforeblur
+      // TODO: Only need to visit Deletions during BeforeMutation phase if an
+      // element is focused.
+      ChildDeletion | Visibility
+    : 0);
+
+export const MutationMask =
+  Placement |
+  Update |
+  ChildDeletion |
+  ContentReset |
+  Ref |
+  Hydrating |
+  Visibility;
 
 export type Lanes = number;
 export type Lane = number;
@@ -105,7 +130,7 @@ export interface Container extends Element {
   [key: string]: any
 }
 
-
+export type Instance = Element;
 export type Cache = Map<() => any, any>;
 
 export interface Fiber {
@@ -182,7 +207,7 @@ export interface Fiber {
 
   // // Effect
   flags: Flags,
-  // subtreeFlags: Flags,
+  subtreeFlags: Flags,
   deletions: Array<Fiber> | null,
 
   // // Singly linked list fast path to the next fiber with side-effects.
@@ -345,3 +370,12 @@ export type Props = {
   right?: null | number,
   top?: null | number,
 };
+
+
+export const ELEMENT_NODE = 1;
+export const TEXT_NODE = 3;
+export const COMMENT_NODE = 8;
+export const DOCUMENT_NODE = 9;
+export const DOCUMENT_FRAGMENT_NODE = 11;
+export type TextInstance = Text;
+export type SuspenseInstance = Comment

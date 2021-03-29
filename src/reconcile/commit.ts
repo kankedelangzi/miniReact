@@ -2,10 +2,12 @@ import { FiberRoot,HostEffectMask, Fiber, Lanes, ProfileMode, NoMode, Incomplete
 import {  NoLanes,getNextLanes } from '../reactDom/lane'
 import { createFiber} from '../reactDom/create'
 import { beginWork } from './beginWork'
+import {  commitRoot } from './commitRoot'
 let workInProgressRoot: FiberRoot | null = null;
 let workInProgress: Fiber | null = null;
 let workInProgressRootRenderLanes: Lanes = NoLanes;
 let subtreeRenderLanes: Lanes = NoLanes;
+
 
 function unwindWork(workInProgress: Fiber, renderLanes: Lanes):Fiber|null {
   return null
@@ -227,9 +229,9 @@ export function performSyncWorkOnRoot(root: FiberRoot) {
   lanes = getNextLanes(root, NoLanes);  // 当前lanes
   exitStatus = renderRootSync(root, lanes);  // lanes 
 //   // 标示完成的工作
-//  const finishedWork: Fiber|null = (root.current?.alternate)||null;
-//  root.finishedWork = finishedWork;
-//  root.finishedLanes = lanes;
+ const finishedWork: Fiber|null = (root.current?.alternate)||null;
+ root.finishedWork = finishedWork;
+ root.finishedLanes = lanes;
 //  // 开始commitRoot的部分
-//  commitRoot(root);
+ commitRoot(root);
 }

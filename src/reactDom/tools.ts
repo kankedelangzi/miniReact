@@ -163,3 +163,18 @@ export function shouldSetTextContent(type: string, props: Props): boolean {
       props.dangerouslySetInnerHTML.__html != null)
   );
 }
+
+
+export function prepareForCommit(containerInfo: Container): Object | null {
+  // eventsEnabled = ReactBrowserEventEmitterIsEnabled();
+  // selectionInformation = getSelectionInformation();
+  let activeInstance = null;
+  // if (enableCreateEventHandleAPI) {
+  //   const focusedElem = selectionInformation.focusedElem;
+  //   if (focusedElem !== null) {
+  //     activeInstance = getClosestInstanceFromNode(focusedElem);
+  //   }
+  // }
+  // ReactBrowserEventEmitterSetEnabled(false);
+  return activeInstance;
+}
