@@ -1,5 +1,5 @@
 import { RootOptions, RootType, Container, HostText,
-  LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,
+  LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,ProfileMode,
   Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,IndeterminateComponent,
   HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap}  from '../type/index'
 import { markContainerAsRoot  } from './tools'
@@ -186,6 +186,7 @@ export function createHostRootFiber(
   } else {
     mode = NoMode;
   }
+  mode |= ProfileMode;
   return createFiber(HostRoot, null, null, mode);
 }
 

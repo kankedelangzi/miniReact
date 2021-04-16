@@ -1,16 +1,134 @@
-import { FiberRoot,HostEffectMask, Fiber, Lanes, ProfileMode, NoMode, Incomplete, NoFlags } from '../type'
-import {  NoLanes,getNextLanes } from '../reactDom/lane'
+import { FiberRoot,HostEffectMask, 
+  Fiber,StaticMask, Lanes, ClassComponent,
+  HostText,Snapshot,
+  HostRoot,HostComponent, ShouldCapture,DidCapture,
+  ProfileMode, NoMode, Incomplete, NoFlags } from '../type'
+import {  NoLanes,getNextLanes, mergeLanes } from '../reactDom/lane'
 import { createFiber} from '../reactDom/create'
 import { beginWork } from './beginWork'
 import {  commitRoot } from './commitRoot'
+
 let workInProgressRoot: FiberRoot | null = null;
 let workInProgress: Fiber | null = null;
 let workInProgressRootRenderLanes: Lanes = NoLanes;
 let subtreeRenderLanes: Lanes = NoLanes;
-
+const enableProfilerTimer = false;
 
 function unwindWork(workInProgress: Fiber, renderLanes: Lanes):Fiber|null {
+  // debugger
+  switch (workInProgress.tag) {
+    case ClassComponent:
+      break
+    case HostRoot: 
+      // if (enableCache) {
+      //   const root: FiberRoot = workInProgress.stateNode;
+      //   popRootCachePool(root, renderLanes);
+
+      //   const cache: Cache = workInProgress.memoizedState.cache;
+      //   popCacheProvider(workInProgress, cache);
+      // }
+      // popHostContainer(workInProgress);
+      // popTopLevelLegacyContextObject(workInProgress);
+      // resetMutableSourceWorkInProgressVersions();
+      const flags = workInProgress.flags;
+      // debugger
+      workInProgress.flags = (flags & ~ShouldCapture) | DidCapture;
+      return workInProgress;
+    case HostComponent:
+      break
+    default:
+      return null;
+  }
   return null
+}
+function bubbleProperties(completedWork: Fiber) {
+  const didBailout =
+    completedWork.alternate !== null &&
+    completedWork.alternate.child === completedWork.child;
+
+  let newChildLanes = NoLanes;
+  let subtreeFlags = NoFlags;
+  if (!didBailout) {
+    if ((completedWork.mode & ProfileMode) !== NoMode) {
+      //
+      let actualDuration = completedWork.actualDuration ||0;
+      let treeBaseDuration = (completedWork.selfBaseDuration as number);
+
+      let child = completedWork.child;
+      while (child !== null) {
+        newChildLanes = mergeLanes(
+          newChildLanes,
+          mergeLanes(child.lanes, child.childLanes),
+        );
+
+        subtreeFlags |= child.subtreeFlags;
+        subtreeFlags |= child.flags;
+
+        // When a fiber is cloned, its actualDuration is reset to 0. This value will
+        // only be updated if work is done on the fiber (i.e. it doesn't bailout).
+        // When work is done, it should bubble to the parent's actualDuration. If
+        // the fiber has not been cloned though, (meaning no work was done), then
+        // this value will reflect the amount of time spent working on a previous
+        // render. In that case it should not bubble. We determine whether it was
+        // cloned by comparing the child pointer.
+        actualDuration += child.actualDuration || 0;
+
+        treeBaseDuration += child.treeBaseDuration || 0;
+        child = child.sibling;
+      }
+
+      completedWork.actualDuration = actualDuration;
+      completedWork.treeBaseDuration = treeBaseDuration;
+    } else{
+      let child = completedWork.child;
+      while (child !== null) {
+        newChildLanes = mergeLanes(
+          newChildLanes,
+          mergeLanes(child.lanes, child.childLanes),
+        );
+
+        subtreeFlags |= child.subtreeFlags;
+        subtreeFlags |= child.flags;
+
+        // Update the return pointer so the tree is consistent. This is a code
+        // smell because it assumes the commit phase is never concurrent with
+        // the render phase. Will address during refactor to alternate model.
+        child.return = completedWork;
+
+        child = child.sibling;
+      }
+    }
+    completedWork.subtreeFlags |= subtreeFlags;
+  } else {
+    if ((completedWork.mode & ProfileMode) !== NoMode) {
+      //
+    } else {
+      let child = completedWork.child;
+      while (child !== null) {
+        newChildLanes = mergeLanes(
+          newChildLanes,
+          mergeLanes(child.lanes, child.childLanes),
+        );
+
+        // "Static" flags share the lifetime of the fiber/hook they belong to,
+        // so we should bubble those up even during a bailout. All the other
+        // flags have a lifetime only of a single render + commit, so we should
+        // ignore them.
+        subtreeFlags |= child.subtreeFlags & StaticMask;
+        subtreeFlags |= child.flags & StaticMask;
+
+        // Update the return pointer so the tree is consistent. This is a code
+        // smell because it assumes the commit phase is never concurrent with
+        // the render phase. Will address during refactor to alternate model.
+        child.return = completedWork;
+
+        child = child.sibling;
+      }
+    }
+    completedWork.subtreeFlags |= subtreeFlags;
+  }
+  completedWork.childLanes = newChildLanes;
+  return didBailout;
 }
 // 备注：(1) 对于IndeterminateComponent， LazyComponent，SimpleMemoComponent，FunctionComponent
 // ForwardRef， Fragment，Mode， Profiler， ContextConsumer， MemoComponent ，直接返回null
@@ -24,7 +142,61 @@ function completeWork(
   workInProgress: Fiber,
   renderLanes: Lanes,
 ): Fiber | null {
+  
+  switch (workInProgress.tag) {
+    case ClassComponent: {
+      const Component = workInProgress.type;
+      // if (isLegacyContextProvider(Component)) {
+      //   popLegacyContext(workInProgress);
+      // }
+      bubbleProperties(workInProgress);
+      return null;
+    }
+    case HostRoot: {
+      const fiberRoot = (workInProgress.stateNode as FiberRoot);
+      // updateHostContainer(current, workInProgress);
+      // popHostContainer(workInProgress);
+      // popTopLevelLegacyContextObject(workInProgress);
+      // resetMutableSourceWorkInProgressVersions();
+      if (fiberRoot.pendingContext) {
+        fiberRoot.context = fiberRoot.pendingContext;
+        fiberRoot.pendingContext = null;
+      }
+      if (current === null || current.child === null) {
+        // If we hydrated, pop so that we can delete any remaining children
+        // that weren't hydrated.
+        const wasHydrated = false
+        if (wasHydrated) {
+          // If we hydrated, then we'll need to schedule an update for
+          // the commit side-effects on the root.
+          // markUpdate(workInProgress);
+        } else if (!fiberRoot.hydrate) {
+          // Schedule an effect to clear this container at the start of the next commit.
+          // This handles the case of React rendering into a container with previous children.
+          // It's also safe to do for updates too, because current.child would only be null
+          // if the previous render was null (so the the container would already be empty).
+          workInProgress.flags |= Snapshot;
+        }
+      }
+      // updateHostContainer(current, workInProgress); noop
+      bubbleProperties(workInProgress);
+      return null;
+    }
+    case HostComponent: {
+
+      bubbleProperties(workInProgress);
+      return null;
+
+    }
+    case HostText: {
+
+      bubbleProperties(workInProgress);
+      return null;
+    }
+  }
+  
   return null
+
 }
 
  // 备注：循环判断， 首先根据执行是否出错（1） 1.当fiber 执行没有报错的时候，执行completeWokr(主要处理HostConent, HostTest,
@@ -42,7 +214,7 @@ function completeWork(
 // 生成错误状态的children。最后forceUnmountCurrentAndReconcile ，清空原来的children , 
 // 最后使用使用新生成的children ,进行协调。
 function completeUnitOfWork(unitOfWork: Fiber): void {
-  debugger
+  // debugger
   let completedWork: Fiber|null = unitOfWork;
   do {
      // 当前节点，已刷新，该fiber的状态是备份的。
@@ -140,6 +312,7 @@ function workLoopSync() {
   while (workInProgress !== null) {  // 同步更新的时候，一次性更新完
     // 执行更新操作
    console.log('work loop')
+  //  debugger
     performUnitOfWork(workInProgress);  // rootFiber的alternate
   }
 }
@@ -173,6 +346,7 @@ export function createWorkInProgress(current: Fiber|null, pendingProps: any): Fi
   if(!current) {
     return {} as Fiber;
   }
+
   let workInProgress = current.alternate;
   if(workInProgress === null) {
     workInProgress = createFiber(
@@ -189,7 +363,8 @@ export function createWorkInProgress(current: Fiber|null, pendingProps: any): Fi
   } else {
 
   }
-  // workInProgress.flags = current.flags & StaticMask;
+
+  workInProgress.flags = current.flags & StaticMask;
   workInProgress.childLanes = current.childLanes;
   workInProgress.lanes = current.lanes;
 

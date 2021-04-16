@@ -43,7 +43,7 @@ export function runWithPriority<T>(
 function commitRootImpl(root: FiberRoot, renderPriorityLevel: ReactPriorityLevel) {
   // finishedWork ， finishedLanes
    // 获得 root 上的 finishedWork，这个就是前面调度更新的结果
-   debugger
+  //  debugger
    const finishedWork = root.finishedWork;
    const lanes = root.finishedLanes;
    // //表示该节点没有要更新的任务，直接 return
@@ -205,6 +205,7 @@ function commitMutationEffects_complete(
   while (nextEffect !== null) {
     const fiber = nextEffect;
     try {
+      debugger
       commitMutationEffectsOnFiber(fiber, root, renderPriorityLevel);
     } catch (error) {
       // captureCommitPhaseError(fiber, fiber.return, error);
@@ -227,7 +228,8 @@ function commitMutationEffectsOnFiber(
 ) {
   const flags = finishedWork.flags;
   const primaryFlags = flags & (Placement | Update | Hydrating);
-  console.log('commit mutation', primaryFlags)
+  console.log('commit mutation', primaryFlags, finishedWork)
+  debugger
   switch (primaryFlags) {
     case Placement: {
       commitPlacement(finishedWork);
@@ -283,6 +285,7 @@ function commitPlacement(finishedWork: Fiber): void {
   let isContainer;
   const parentStateNode = parentFiber ? parentFiber.stateNode : {};
   const tag = parentFiber ? parentFiber.tag : 1
+  debugger
   switch (tag) {
     case HostComponent:
       parent = parentStateNode;

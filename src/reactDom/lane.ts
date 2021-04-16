@@ -123,3 +123,6 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes{
   return  nextLanes;
 
 }
+export function mergeLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
+  return a | b;
+}

@@ -15,6 +15,7 @@ export const DehydratedFragment = 18;
 export type RootTag = 0 | 1 | 2;
 export const LegacyRoot = 0;
 export const BlockingRoot = 1;
+export const ClassComponent = 1;
 export const ConcurrentRoot = 2;
 export type WorkTag =| 0| 1| 2| 3| 4| 5| 6| 7 | 8| 9| 10| 11
   | 12
@@ -74,8 +75,9 @@ export const ShouldCapture = /*                */ 0b00000100000000000000;
 // TODO (effects) Remove this bit once the new reconciler is synced to the old.
 export const PassiveUnmountPendingDev = /*     */ 0b00001000000000000000;
 export const ForceUpdateForLegacySuspense = /* */ 0b00010000000000000000;
+export const PassiveStatic = /*                */ 0b00100000000000000000;
 export const enableCreateEventHandleAPI = false;
-
+export const StaticMask = PassiveStatic;
 
 export const BeforeMutationMask =
   // TODO: Remove Update flag from before mutation phase by re-landing Visiblity
@@ -231,7 +233,7 @@ export interface Fiber {
   // // This tells us how well the tree makes use of sCU for memoization.
   // // It is reset to 0 each time we render and only updated when we don't bailout.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // actualDuration?: number,
+  actualDuration?: number,
 
   // // If the Fiber is currently active in the "render" phase,
   // // This marks the time at which the work began.
@@ -241,12 +243,12 @@ export interface Fiber {
   // // Duration of the most recent render time for this Fiber.
   // // This value is not updated when we bailout for memoization purposes.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // selfBaseDuration?: number,
+  selfBaseDuration?: number,
 
   // // Sum of base times for all descendants of this Fiber.
   // // This value bubbles up during the "complete" phase.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // treeBaseDuration?: number,
+  treeBaseDuration?: number,
 
   // // Conceptual aliases
   // // workInProgress : Fiber ->  alternate The alternate used for reuse happens

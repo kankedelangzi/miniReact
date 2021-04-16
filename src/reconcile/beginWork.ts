@@ -1,5 +1,5 @@
 import { Fiber, Lanes, Update, UpdateQueue,
-  FiberRoot, 
+  FiberRoot, Placement,
    ShouldCapture, DidCapture,
   TypeOfMode,ChildDeletion, HostText,HostComponent, 
   ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot } from '../type/index'
@@ -72,6 +72,7 @@ function updateHostComponent(
   if(isDirectTextChild) {
     nextChildren = null
   } else if (prevProps !== null && shouldSetTextContent(type, prevProps)) {
+    console.log(workInProgress.flags, ContentReset)
     workInProgress.flags |= ContentReset;
     // 更改为纯文本内容
   }
@@ -83,9 +84,9 @@ function updateHostComponent(
 function placeSingleChild(newFiber: Fiber): Fiber {
   // This is simpler for the single child case. We only need to do a
   // placement for inserting new children.
-  // if (shouldTrackSideEffects && newFiber.alternate === null) { //TODO
-  //   newFiber.flags |= Placement;
-  // }
+  if (true && newFiber.alternate === null) { //TODO
+    newFiber.flags |= Placement;
+  }
   return newFiber;
 }
 
