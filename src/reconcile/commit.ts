@@ -1,18 +1,35 @@
 import { FiberRoot,HostEffectMask, 
   Fiber,StaticMask, Lanes, ClassComponent,
-  HostText,Snapshot,
+  HostText,Snapshot,Container,HostContext,Update,
   HostRoot,HostComponent, ShouldCapture,DidCapture,
   ProfileMode, NoMode, Incomplete, NoFlags } from '../type'
 import {  NoLanes,getNextLanes, mergeLanes } from '../reactDom/lane'
 import { createFiber} from '../reactDom/create'
 import { beginWork } from './beginWork'
 import {  commitRoot } from './commitRoot'
-
+import {  createInstance } from '../reactDom/instance'
+import { appendAllChildren, finalizeInitialChildren } from '../reactDom/domOperation'
+declare class NoContextT {}
+export type StackCursor<T> = {current: T};
 let workInProgressRoot: FiberRoot | null = null;
 let workInProgress: Fiber | null = null;
 let workInProgressRootRenderLanes: Lanes = NoLanes;
 let subtreeRenderLanes: Lanes = NoLanes;
+const NO_CONTEXT: NoContextT = {};
+const contextStackCursor: StackCursor<HostContext | NoContextT> = createCursor(
+  NO_CONTEXT,
+);
 const enableProfilerTimer = false;
+
+function createCursor<T>(defaultValue: T): StackCursor<T> {
+  return {
+    current: defaultValue,
+  };
+}
+
+const rootInstanceStackCursor: StackCursor<
+  Container | NoContextT
+> = createCursor(NO_CONTEXT);
 
 function unwindWork(workInProgress: Fiber, renderLanes: Lanes):Fiber|null {
   // debugger
@@ -130,6 +147,20 @@ function bubbleProperties(completedWork: Fiber) {
   completedWork.childLanes = newChildLanes;
   return didBailout;
 }
+function requiredContext<Value>(c: Value ): Value {
+  return c;
+}
+function getHostContext(): HostContext {
+  const context = requiredContext(contextStackCursor.current);
+  return context as HostContext;
+}
+
+function getRootHostContainer(): Container| NoContextT{
+  const rootInstance = requiredContext<Container|NoContextT>(rootInstanceStackCursor.current);
+  return rootInstance;
+}
+
+
 // 备注：(1) 对于IndeterminateComponent， LazyComponent，SimpleMemoComponent，FunctionComponent
 // ForwardRef， Fragment，Mode， Profiler， ContextConsumer， MemoComponent ，直接返回null
 // (2) ClassComponent ， 处理旧版本的context 后， 返回null。（3 ） HostRoot ， 执行了一个
@@ -142,7 +173,8 @@ function completeWork(
   workInProgress: Fiber,
   renderLanes: Lanes,
 ): Fiber | null {
-  
+  const newProps = workInProgress.pendingProps;
+  // debugger
   switch (workInProgress.tag) {
     case ClassComponent: {
       const Component = workInProgress.type;
@@ -183,7 +215,56 @@ function completeWork(
       return null;
     }
     case HostComponent: {
+      const type = workInProgress.type
+      const rootContainerInstance = getRootHostContainer() as Container;
+      const currentHostContext = getHostContext();
+      if (current !== null && workInProgress.stateNode != null) {
+        // 
+      } else {
+        if (!newProps) {
+          console.error('error newProps null')
+          // This can happen when we abort work.
+          bubbleProperties(workInProgress);
+          return null;
+        }
+        // const currentHostContext = getHostContext();
+        const wasHydrated = false; 
+        if(wasHydrated) {
+          //
+        } else {
+          // debugger
+          const instance = createInstance(
+            type,
+            newProps,
+            rootContainerInstance,
+            currentHostContext,
+            workInProgress,
+          );
 
+          appendAllChildren(instance, workInProgress, false, false);
+
+          workInProgress.stateNode = instance;
+
+          // Certain renderers require commit-time effects for initial mount.
+          // (eg DOM renderer supports auto-focus for certain elements).
+          // Make sure such renderers get scheduled for later work.
+          if (
+            finalizeInitialChildren(
+              instance,
+              type,
+              newProps,
+              rootContainerInstance,
+              currentHostContext,
+            )
+          ) {
+            markUpdate(workInProgress);
+          }
+        }
+        // if (workInProgress.ref !== null) { // TODO
+        //   // If there is a ref on a host node we need to schedule a callback
+        //   markRef(workInProgress);
+        // }
+      }
       bubbleProperties(workInProgress);
       return null;
 
@@ -409,4 +490,11 @@ export function performSyncWorkOnRoot(root: FiberRoot) {
  root.finishedLanes = lanes;
 //  // 开始commitRoot的部分
  commitRoot(root);
+}
+
+
+function markUpdate(workInProgress: Fiber) {
+  // Tag the fiber with an update effect. This turns a Placement into
+  // a PlacementAndUpdate.
+  workInProgress.flags |= Update;
 }

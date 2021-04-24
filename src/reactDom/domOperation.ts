@@ -1,4 +1,7 @@
-import {Container,Instance,TextInstance,SuspenseInstance,COMMENT_NODE} from '../type'
+import {Container,Instance,TextInstance,
+  Fiber,HostComponent,HostText,HostPortal,Props,HostContext,
+  SuspenseInstance,COMMENT_NODE} from '../type'
+import {  setInitialProperties } from './propsOperate'
 export function insertInContainerBefore(
   container: Container,
   child: Instance | TextInstance,
@@ -68,4 +71,67 @@ export function appendChild(
   child: Instance | TextInstance,
 ): void {
   parentInstance.appendChild(child);
+}
+export function appendInitialChild(
+  parentInstance: Instance,
+  child: Instance | TextInstance,
+): void {
+  parentInstance.appendChild(child);
+}
+
+export function appendAllChildren (
+  parent: Instance,
+  workInProgress: Fiber,
+  needsVisibilityToggle: boolean,
+  isHidden: boolean,
+) {
+  // We only have the top Fiber that was created but we need recurse down its
+  // children to find all the terminal nodes.
+  let node = workInProgress.child;
+  while (node !== null) {
+    if (node.tag === HostComponent || node.tag === HostText) {
+      appendInitialChild(parent, node.stateNode);
+    } else if (node.tag === HostPortal) {
+      // If we have a portal child, then we don't want to traverse
+      // down its children. Instead, we'll get insertions from each child in
+      // the portal directly.
+    } else if (node.child !== null) {
+      node.child.return = node;
+      node = node.child;
+      continue;
+    }
+    if (node === workInProgress) {
+      return;
+    }
+    while (node.sibling === null) {
+      if (node.return === null || node.return === workInProgress) {
+        return;
+      }
+      node = node.return;
+    }
+    node.sibling.return = node.return;
+    node = node.sibling;
+  }
+};
+
+export function finalizeInitialChildren(
+  domElement: Instance,
+  type: string,
+  props: Props,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+): boolean {
+  setInitialProperties(domElement, type, props, rootContainerInstance);
+  return shouldAutoFocusHostComponent(type, props);
+}
+
+function shouldAutoFocusHostComponent(type: string, props: Props): boolean {
+  switch (type) {
+    case 'button':
+    case 'input':
+    case 'select':
+    case 'textarea':
+      return !!props.autoFocus;
+  }
+  return false;
 }

@@ -1,4 +1,7 @@
-import { FiberRoot, HostComponent, Fiber, Container, ReactPriorityLevel, Lane, Lanes, Props}  from '../type/index'
+import { FiberRoot, HostComponent, Fiber, 
+  Container, ReactPriorityLevel, 
+  Instance,TextInstance, SuspenseInstance , ReactScopeInstance,
+  Lane, Lanes, Props}  from '../type/index'
 import Scheduler from '../scheduler'
 import {  IdleLane, NoLanes } from './lane'
 const {
@@ -34,12 +37,28 @@ export function getPublicRootInstance(container: FiberRoot) {
   }
 }
 const internalContainerInstanceKey = '__reactContainer$' + randomKey;
-
+const internalInstanceKey = '__reactFiber$' + randomKey;
+const internalPropsKey = '__reactProps$' + randomKey;
+const internalEventHandlersKey = '__reactEvents$' + randomKey;
+const internalEventHandlerListenersKey = '__reactListeners$' + randomKey;
+const internalEventHandlesSetKey = '__reactHandles$' + randomKey;
 export function markContainerAsRoot(hostRoot: Fiber|null, node: Container): void {
   
   node[internalContainerInstanceKey] = hostRoot;
 }
 
+export function updateFiberProps(
+  node:  {[key: string]: any} ,
+  props: Props,
+): void {
+  node[internalPropsKey] = props;
+}
+export function precacheFiberNode(
+  hostInst: Fiber,
+  node: Instance | TextInstance | SuspenseInstance | ReactScopeInstance,
+): void {
+  node[internalInstanceKey] = hostInst;
+}
 // const initialTimeMs: number = Scheduler_now();
 // export const now =
 //   initialTimeMs < 10000 ? Scheduler_now : () => Scheduler_now() - initialTimeMs;
@@ -178,3 +197,4 @@ export function prepareForCommit(containerInfo: Container): Object | null {
   // ReactBrowserEventEmitterSetEnabled(false);
   return activeInstance;
 }
+

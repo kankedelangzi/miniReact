@@ -100,7 +100,7 @@ export function updateContainer(
   }
   const eventTime = requestEventTime();
   const lane = requestUpdateLane(current)
-   // 获取当前节点和子节点的上下文
+   // 获取当前节点和子节点的上下文  // 第一次执行到这传入的是null返回的是{}
   const context = getContextForSubtree(parentComponent);// {}
 
   if (container.context === null) {
@@ -110,8 +110,24 @@ export function updateContainer(
   }
   console.log(container, 'container')
 
+
+  /**
+   * 得到一个update对象 没有任何其他处理 UpdateState 此时是0
+   * {
+        eventTime,
+        lane,
+
+        tag: UpdateState,
+        payload: null,
+        callback: null,
+
+        next: null,
+    }
+   */
   const update = createUpdate(eventTime, lane);
+  // todo 目前并没有弄清楚这个在哪使用的，后续跟进
   update.payload = {element};
+  
   enqueueUpdate(current, update, lane);
 
   const root = scheduleUpdateOnFiber(current, lane, eventTime);

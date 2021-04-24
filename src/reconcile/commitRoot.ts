@@ -205,7 +205,6 @@ function commitMutationEffects_complete(
   while (nextEffect !== null) {
     const fiber = nextEffect;
     try {
-      debugger
       commitMutationEffectsOnFiber(fiber, root, renderPriorityLevel);
     } catch (error) {
       // captureCommitPhaseError(fiber, fiber.return, error);
@@ -229,7 +228,7 @@ function commitMutationEffectsOnFiber(
   const flags = finishedWork.flags;
   const primaryFlags = flags & (Placement | Update | Hydrating);
   console.log('commit mutation', primaryFlags, finishedWork)
-  debugger
+
   switch (primaryFlags) {
     case Placement: {
       commitPlacement(finishedWork);
@@ -285,7 +284,7 @@ function commitPlacement(finishedWork: Fiber): void {
   let isContainer;
   const parentStateNode = parentFiber ? parentFiber.stateNode : {};
   const tag = parentFiber ? parentFiber.tag : 1
-  debugger
+  // debugger
   switch (tag) {
     case HostComponent:
       parent = parentStateNode;
@@ -313,9 +312,10 @@ function commitPlacement(finishedWork: Fiber): void {
   const before = getHostSibling(finishedWork);
   // We only have the top Fiber that was inserted but we need to recurse down its
   // children to find all the terminal nodes.
-  if (isContainer && before) {
+  if (isContainer) {
     insertOrAppendPlacementNodeIntoContainer(finishedWork, before, parent);
-  } else if(before) {
+  } else  {
+  
     insertOrAppendPlacementNode(finishedWork, before, parent);
   }
 }
@@ -386,7 +386,7 @@ function getHostSibling(fiber: Fiber):Instance|null {
 
 function insertOrAppendPlacementNodeIntoContainer(
   node: Fiber,
-  before?:Instance,
+  before?:Instance|null,
   parent?: Container,
 ): void {
   const {tag} = node;
@@ -417,7 +417,7 @@ function insertOrAppendPlacementNodeIntoContainer(
 
 function insertOrAppendPlacementNode(
   node: Fiber,
-  before?:Instance,
+  before?:Instance|null,
   parent?: Instance,
 ): void {
   const {tag} = node;

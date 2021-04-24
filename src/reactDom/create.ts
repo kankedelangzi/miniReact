@@ -226,6 +226,7 @@ class FiberNode implements Fiber {
     this.deletions = null
     this.key = null;
     this.subtreeFlags = 0
+    this.pendingProps = pendingProps
   }
   subtreeFlags: number;
   key: string | null;
@@ -250,6 +251,7 @@ export function createFiberFromTypeAndProps(
     fiberTag = HostComponent;
   } 
   console.log('createFiberFromTypeAndProps')
+ 
   const fiber = createFiber(fiberTag, pendingProps, key, mode);
   fiber.elementType = type;
   fiber.type = resolvedType;

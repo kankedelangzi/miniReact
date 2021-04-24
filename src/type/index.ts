@@ -329,7 +329,8 @@ export type RootOptions = {
   },
   unstable_strictModeLevel?: number,
 };
-type mixed = any
+// flow中的mixed相当于any @see https://flow.org/en/docs/types/mixed/
+export type mixed = any
 
 
 export type Update<State> = {
@@ -366,11 +367,12 @@ export type Props = {
   hidden?: boolean,
   suppressHydrationWarning?: boolean,
   dangerouslySetInnerHTML?: mixed,
-  style?: {display?: string},
+  style?: {display?: string, [key: string]: any},
   bottom?: null | number,
   left?: null | number,
   right?: null | number,
   top?: null | number,
+  [key: string]: any
 };
 
 
@@ -381,3 +383,21 @@ export const DOCUMENT_NODE = 9;
 export const DOCUMENT_FRAGMENT_NODE = 11;
 export type TextInstance = Text;
 export type SuspenseInstance = Comment
+
+export type ReactScopeInstance = any
+
+export type HostContext = string
+
+export type PropertyType = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export const RESERVED = 0;
+
+export type PropertyInfo = {
+  acceptsBooleans: boolean,
+  attributeName: string,
+  attributeNamespace: string | null,
+  mustUseProperty: boolean,
+  propertyName: string,
+  type: PropertyType,
+  sanitizeURL: boolean,
+  removeEmptyString: boolean,
+};
