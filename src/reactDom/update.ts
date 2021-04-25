@@ -108,3 +108,4 @@ export function isInterleavedUpdate(fiber: Fiber, lane: Lane) {
       (executionContext & RenderContext) === NoContext)
   );
 }
+

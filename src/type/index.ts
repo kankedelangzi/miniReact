@@ -4,6 +4,7 @@ export let REACT_ELEMENT_TYPE = 0xeac7;
 
 export type ReactText = string | number;
 export const HostComponent = 5;
+export const FunctionComponent = 0;
 export type ReactNode = IReactElement|ReactText
 export const IndeterminateComponent = 2; // Before we know whether it is function or class
 export type ReactEmpty = null | void | boolean;
@@ -112,6 +113,34 @@ export type HydratableInstance = Instance | TextInstance | SuspenseInstance;
 
 export type Flags = number
 
+export type ReactProviderType<T> = {
+  $$typeof: Symbol | number,
+  _context: ReactContext<T>,
+};
+
+export type ReactContext<T> = {
+  $$typeof: Symbol | number,
+  Consumer: ReactContext<T>,
+  Provider: ReactProviderType<T>,
+  _calculateChangedBits: ((a: T, b: T) => number) | null,
+  _currentValue: T,
+  _currentValue2: T,
+  _threadCount: number,
+  // DEV only
+  _currentRenderer?: Object | null,
+  _currentRenderer2?: Object | null,
+  // This value may be added by application code
+  // to improve DEV tooling display names
+  displayName?: string,
+
+};
+
+export type ContextDependency<T> = {
+  context: ReactContext<T>,
+  observedBits: number,
+  next: ContextDependency<mixed> | null,
+
+};
 
 export type IReactElement = {
  
@@ -136,6 +165,10 @@ export interface Container extends Element {
 
 export type Instance = Element;
 export type Cache = Map<() => any, any>;
+export type Dependencies = {
+  lanes: Lanes,
+  firstContext: ContextDependency<mixed> | null,
+};
 
 export interface Fiber {
   // // These first fields are conceptually members of an Instance. This used to
@@ -198,8 +231,8 @@ export interface Fiber {
   // // The state used to create the output
   memoizedState: any,
 
-  // // Dependencies (contexts, events) for this fiber, if it has any
-  // dependencies: Dependencies | null,
+  // Dependencies (contexts, events) for this fiber, if it has any
+  dependencies: Dependencies | null,
 
   // // Bitfield that describes properties about the fiber and its subtree. E.g.
   // // the ConcurrentMode flag indicates whether the subtree should be async-by-
@@ -376,6 +409,8 @@ export type Props = {
   top?: null | number,
   [key: string]: any
 };
+
+
 
 
 export const ELEMENT_NODE = 1;

@@ -3,8 +3,15 @@
 import React from './react/index'
 import ReactDOM from './reactDom/index';
 // import 'index.css'
-
-const node = <div><p>mini react </p><span>hello</span></div>
+function Counter() {
+  // const count = 1
+  return <div>1次</div>
+}
+const node = <div>
+    <p>mini react </p>
+    <span>hello</span>
+    <Counter />
+  </div>
 // 
 ReactDOM.render(
 node,

@@ -110,7 +110,9 @@ export function createLaneMap<T>(initial: T): LaneMap<T> {
   }
   return laneMap;
 }
-
+export function includesSomeLane(a: Lanes | Lane, b: Lanes | Lane) {
+  return (a & b) !== NoLanes;
+}
 
 // 当前不完整
 export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes{

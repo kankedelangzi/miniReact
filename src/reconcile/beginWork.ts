@@ -2,6 +2,7 @@ import { Fiber, Lanes, Update, UpdateQueue,
   FiberRoot, Placement,Container,
    ShouldCapture, DidCapture, StackCursor,
    HydratableInstance,Instance,TextInstance,
+   IndeterminateComponent,
   TypeOfMode,ChildDeletion, HostText,HostComponent,
   ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot } from '../type/index'
 import { shouldSetTextContent } from '../reactDom/tools'
@@ -10,9 +11,15 @@ import { createCursor, push, pop, rootInstanceStackCursor, NoContextT, NO_CONTEX
 import { } from './tools'
 import { getRootHostContext } from '../reactDom/context'
 import { createChild } from '../reactDom/create'
+import { mountIndeterminateComponent} from './functionComponent'
 import { canHydrateInstance, canHydrateTextInstance, getNextHydratableSibling, getFirstHydratableChild } from '../reactDom/instance'
 const isArray = Array.isArray;
+let didReceiveUpdate: boolean = false;
 export const disableLegacyContext = false;
+
+export function markWorkInProgressReceivedUpdate() {
+  didReceiveUpdate = true;
+}
 
 export function beginWork(
   current: Fiber | null,
@@ -22,12 +29,21 @@ export function beginWork(
 
  
   switch(workInProgress.tag) {
+    case IndeterminateComponent: {
+      return mountIndeterminateComponent(
+        current||null,
+        workInProgress,
+        workInProgress.type,
+        renderLanes,
+      ) || null;
+    }
     case HostRoot:
       return updateHostRoot(current, workInProgress, renderLanes);
     case HostComponent: 
       return updateHostComponent(current, workInProgress, renderLanes)
     case HostText:
       return updateHostText(current, workInProgress);
+    
     default:
       console.log('%c beginWork 这种类型的tag没有处理逻辑',  
       'color:red;background:yellow;', workInProgress.tag)
@@ -210,7 +226,7 @@ function tryToClaimNextHydratableInstance(fiber: Fiber): void {
 }
 
 function updateHostText(current: Fiber|null, workInProgress: Fiber) {
-  debugger
+  // debugger
   if (current === null) {
     tryToClaimNextHydratableInstance(workInProgress);
   }
@@ -449,7 +465,7 @@ function reconcileChildrenArray( returnFiber: Fiber,
         }
         previousNewFiber = newFiber;
       }
-      console.log('批量创建Fiber', resultingFirstChild)
+      console.log('批量创建Fiber', newChildren, resultingFirstChild)
       return resultingFirstChild;
     }
     return resultingFirstChild;
@@ -510,7 +526,7 @@ function  mountChildFibers (
 
 }
 const reconcileChildFibers = mountChildFibers
-function reconcileChildren(current: Fiber | null,workInProgress: Fiber,nextChildren: any, 
+export function reconcileChildren(current: Fiber | null,workInProgress: Fiber,nextChildren: any, 
 renderLanes: Lanes,) {
   
   if(current === null) {

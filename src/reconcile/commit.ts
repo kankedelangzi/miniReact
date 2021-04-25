@@ -396,7 +396,13 @@ function performUnitOfWork(unitOfWork: Fiber):void {
       // stopProfilerTimerIfRunningAndRecordDelta(unitOfWork, true);
       
     } else {
-      next = beginWork(current, unitOfWork, subtreeRenderLanes);
+      try {
+        next = beginWork(current, unitOfWork, subtreeRenderLanes);
+      } catch (error) {
+        console.log('%c beginWork 出错',  
+        'color:white;background:red;', error)
+      }
+     
       console.log('next1')
     }
     
@@ -412,7 +418,7 @@ function performUnitOfWork(unitOfWork: Fiber):void {
       // 如果具有
       // workInProgress设置为一下个工作
       console.log('next')
-      workInProgress = next;
+      workInProgress = next || null;
     }
   
     // ReactCurrentOwner.current = null;
@@ -440,7 +446,7 @@ export function renderRootSync (root: FiberRoot, lanes: Lanes) {
     // 不处理
     startWorkOnPendingInteractions(root, lanes);
   }
-
+  debugger
   do {
     try {
       // 进行更新， workLook 

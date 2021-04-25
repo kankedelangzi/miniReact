@@ -1,5 +1,6 @@
 import { RootOptions, RootType, Container, HostText,REACT_ELEMENT_TYPE,IReactElement,
   LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,ProfileMode,
+  ClassComponent,
   Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,IndeterminateComponent,
   HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap}  from '../type/index'
 import { markContainerAsRoot  } from './tools'
@@ -205,6 +206,7 @@ class FiberNode implements Fiber {
   pendingProps: any;
   memoizedProps: any;
   flags: number;
+  dependencies: any;
   constructor (
     tag: WorkTag,
     pendingProps: any,
@@ -227,6 +229,7 @@ class FiberNode implements Fiber {
     this.key = null;
     this.subtreeFlags = 0
     this.pendingProps = pendingProps
+    this.dependencies = null;
   }
   subtreeFlags: number;
   key: string | null;
@@ -234,6 +237,11 @@ class FiberNode implements Fiber {
   lanes: number;
   childLanes: number;
   elementType: any;
+}
+
+function shouldConstruct(Component: Function) {
+  const prototype = Component.prototype;
+  return !!(prototype && prototype.isReactComponent);
 }
 
 export function createFiberFromTypeAndProps(
@@ -247,7 +255,15 @@ export function createFiberFromTypeAndProps(
 
   let fiberTag: WorkTag = IndeterminateComponent;
   let resolvedType = type;
-  if (typeof type === 'string') {
+  debugger
+  if (typeof type === 'function') {
+    if (shouldConstruct(type)) {
+      fiberTag = ClassComponent;
+      
+    } else {
+     //
+    }
+  } else if (typeof type === 'string') {
     fiberTag = HostComponent;
   } 
   console.log('createFiberFromTypeAndProps')

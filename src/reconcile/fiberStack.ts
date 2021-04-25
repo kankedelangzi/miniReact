@@ -4,7 +4,7 @@ const valueStack: Array<any> = [];
 
 let fiberStack: Array<Fiber | null>;
 
-
+export const emptyContextObject = {};
 
 let index = -1;
 export declare class NoContextT {}
@@ -13,6 +13,10 @@ export const NO_CONTEXT: NoContextT = {};
 export const rootInstanceStackCursor: StackCursor<
   Container | NoContextT
 > = createCursor(NO_CONTEXT);
+
+export const contextStackCursor: StackCursor<Object> = createCursor(
+  emptyContextObject,
+);
 
 function push<T>(cursor: StackCursor<T>, value: T, fiber: Fiber): void {
   index++;
