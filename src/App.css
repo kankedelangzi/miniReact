@@ -36,3 +36,11 @@
     transform: rotate(360deg);
   }
 }
+
+#root {
+  background-color: blue;
+}
+div {
+  height: 100px;
+  background-color: blue;
+}

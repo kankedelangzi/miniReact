@@ -25,14 +25,14 @@ export function legacyRenderSubtreeIntoContainer(props: IlegacyRenderSubtreeInto
       container,
       forceHydrate,
     );
-    console.log('container', container, 'root',root);
+    console.log('container', container, 'root',root, children);
     fiberRoot = root._internalRoot;
     // Initial mount should not be batched.
     // 将执行上下文(executionContext)切换成 LegacyUnbatchedContext (非批量上下文)；
     // 调用 updateContainer 执行更新操作；
     // 将执行上下文(executionContext)恢复到之前的状态；
     // 如果之前的执行上下文是 NoContext，则调用 flushSyncCallbackQueue 刷新同步回调队列。
-    
+   
     unbatchedUpdates(() => {
       updateContainer(children, fiberRoot, parentComponent, callback);
     });
@@ -129,7 +129,7 @@ export function updateContainer(
   update.payload = {element};
   
   enqueueUpdate(current, update, lane);
-
+ console.log('current', current)
   const root = scheduleUpdateOnFiber(current, lane, eventTime);
   // if (root !== null) {
   //   entangleTransitions(root, current, lane);

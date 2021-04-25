@@ -53,6 +53,7 @@ export function enqueueUpdate( fiber: Fiber,update: Update<any>,lane: Lane,) {
   }
   // 共享的queue
   const sharedQueue: SharedQueue<any> = (updateQueue).shared;
+  // debugger
   if (isInterleavedUpdate(fiber, lane)) {
     //
     console.log(1)

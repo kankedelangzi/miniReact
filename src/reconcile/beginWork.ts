@@ -1,12 +1,18 @@
 import { Fiber, Lanes, Update, UpdateQueue,
-  FiberRoot, Placement,
-   ShouldCapture, DidCapture,
-  TypeOfMode,ChildDeletion, HostText,HostComponent, 
+  FiberRoot, Placement,Container,
+   ShouldCapture, DidCapture, StackCursor,
+   HydratableInstance,Instance,TextInstance,
+  TypeOfMode,ChildDeletion, HostText,HostComponent,
   ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot } from '../type/index'
 import { shouldSetTextContent } from '../reactDom/tools'
 import {  createFiberFromTypeAndProps, createFiberFromText } from '../reactDom/create'
-
+import { createCursor, push, pop, rootInstanceStackCursor, NoContextT, NO_CONTEXT } from './fiberStack'
+import { } from './tools'
+import { getRootHostContext } from '../reactDom/context'
+import { createChild } from '../reactDom/create'
+import { canHydrateInstance, canHydrateTextInstance, getNextHydratableSibling, getFirstHydratableChild } from '../reactDom/instance'
 const isArray = Array.isArray;
+export const disableLegacyContext = false;
 
 export function beginWork(
   current: Fiber | null,
@@ -14,21 +20,210 @@ export function beginWork(
   renderLanes: Lanes,
 ): Fiber | null {
 
-  console.log('beginWork')
+ 
   switch(workInProgress.tag) {
     case HostRoot:
       return updateHostRoot(current, workInProgress, renderLanes);
     case HostComponent: 
       return updateHostComponent(current, workInProgress, renderLanes)
+    case HostText:
+      return updateHostText(current, workInProgress);
+    default:
+      console.log('%c beginWork 这种类型的tag没有处理逻辑',  
+      'color:red;background:yellow;', workInProgress.tag)
   }
   return null
 }
 
+export function cloneUpdateQueue<State>(
+  current: Fiber|null,
+  workInProgress: Fiber,
+): void {
+  // Clone the update queue from current. Unless it's already a clone.
+  const queue: UpdateQueue<State> = (workInProgress.updateQueue as any);
+  const currentQueue: UpdateQueue<State> = current ? (current.updateQueue as any) : null;
+  if (queue === currentQueue) {
+    const clone: UpdateQueue<State> = {
+      baseState: currentQueue.baseState,
+      firstBaseUpdate: currentQueue.firstBaseUpdate,
+      lastBaseUpdate: currentQueue.lastBaseUpdate,
+      shared: currentQueue.shared,
+      effects: currentQueue.effects,
+    };
+    workInProgress.updateQueue = clone;
+  }
+}
+
+export const emptyContextObject = {};
+const contextStackCursor: StackCursor<Object> = createCursor(
+  emptyContextObject,
+);
+const didPerformWorkStackCursor: StackCursor<boolean> = createCursor(false);
+
+function pushTopLevelContextObject(
+  fiber: Fiber,
+  context: Object,
+  didChange: boolean,
+): void {
+  if (disableLegacyContext) {
+    return;
+  } else {
+  
+
+    push(contextStackCursor, context, fiber);
+    push(didPerformWorkStackCursor, didChange, fiber);
+  }
+}
+
+
+const contextFiberStackCursor: StackCursor<Fiber | NoContextT> = createCursor(
+  NO_CONTEXT,
+);
+
+function pushHostContainer(fiber: Fiber, nextRootInstance: Container) {
+  // Push current root instance onto the stack;
+  // This allows us to reset root when portals are popped.
+  push(rootInstanceStackCursor, nextRootInstance, fiber);
+  // Track the context and the Fiber that provided it.
+  // This enables us to pop only Fibers that provide unique contexts.
+  push(contextFiberStackCursor, fiber, fiber);
+
+  // Finally, we need to push the host context to the stack.
+  // However, we can't just call getRootHostContext() and push it because
+  // we'd have a different number of entries on the stack depending on
+  // whether getRootHostContext() throws somewhere in renderer code or not.
+  // So we push an empty value first. This lets us safely unwind on errors.
+  push(contextStackCursor, NO_CONTEXT, fiber);
+  const nextRootContext = getRootHostContext(nextRootInstance);
+  // Now that we know this function doesn't throw, replace it.
+  pop(contextStackCursor, fiber);
+  push(contextStackCursor, nextRootContext, fiber);
+}
+
+
+function pushHostRootContext(workInProgress: Fiber) {
+  const root = (workInProgress.stateNode as FiberRoot);
+  if (root.pendingContext) {
+    pushTopLevelContextObject(
+      workInProgress,
+      root.pendingContext,
+      root.pendingContext !== root.context,
+    );
+  } else if (root.context) {
+    // Should always be set
+    pushTopLevelContextObject(workInProgress, root.context, false);
+  }
+  pushHostContainer(workInProgress, root.containerInfo);
+}
+
+let nextHydratableInstance: null | HydratableInstance = null;
+function tryHydrate(fiber: Fiber, nextInstance: HydratableInstance | null) {
+  switch (fiber.tag) {
+    case HostComponent: {
+      const type = fiber.type;
+      const props = fiber.pendingProps;
+      const instance = canHydrateInstance(nextInstance, type, props);
+      if (instance !== null) {
+        fiber.stateNode = (instance as Instance);
+        return true;
+      }
+      return false;
+    }
+    case HostText: {
+      const text = fiber.pendingProps;
+      const textInstance = canHydrateTextInstance(nextInstance, text);
+      if (textInstance !== null) {
+        fiber.stateNode = (textInstance as TextInstance);
+        return true;
+      }
+      return false;
+    }
+    // case SuspenseComponent: {
+    //   if (enableSuspenseServerRenderer) {
+    //     const suspenseInstance: null | SuspenseInstance = canHydrateSuspenseInstance(
+    //       nextInstance,
+    //     );
+    //     if (suspenseInstance !== null) {
+    //       const suspenseState: SuspenseState = {
+    //         dehydrated: suspenseInstance,
+    //         retryLane: OffscreenLane,
+    //       };
+    //       fiber.memoizedState = suspenseState;
+    //       // Store the dehydrated fragment as a child fiber.
+    //       // This simplifies the code for getHostSibling and deleting nodes,
+    //       // since it doesn't have to consider all Suspense boundaries and
+    //       // check if they're dehydrated ones or not.
+    //       const dehydratedFragment = createFiberFromDehydratedFragment(
+    //         suspenseInstance,
+    //       );
+    //       dehydratedFragment.return = fiber;
+    //       fiber.child = dehydratedFragment;
+    //       return true;
+    //     }
+    //   }
+    //   return false;
+    // }
+    default:
+      console.log('%c tryHydrate 这种类型的tag没有处理逻辑',  
+      'color:blue;background:black;', fiber.tag)
+      return false;
+  }
+}
+let hydrationParentFiber: null | Fiber = null;
+const isHydrating = false;
+function tryToClaimNextHydratableInstance(fiber: Fiber): void {
+  if (!isHydrating) {
+    return;
+  }
+  let nextInstance = nextHydratableInstance;
+  // if (!nextInstance) {
+  //   // Nothing to hydrate. Make it an insertion.
+  //   insertNonHydratedInstance((hydrationParentFiber as any), fiber);
+  //   isHydrating = false;
+  //   hydrationParentFiber = fiber;
+  //   return;
+  // }
+  const firstAttemptedInstance = nextInstance;
+  if (!tryHydrate(fiber, nextInstance)) {
+    // If we can't hydrate this instance let's try the next one.
+    // We use this as a heuristic. It's based on intuition and not data so it
+    // might be flawed or unnecessary.
+    nextInstance = getNextHydratableSibling(firstAttemptedInstance);
+    // if (!nextInstance || !tryHydrate(fiber, nextInstance)) {
+    //   // Nothing to hydrate. Make it an insertion.
+    //   insertNonHydratedInstance((hydrationParentFiber as any), fiber);
+    //   isHydrating = false;
+    //   hydrationParentFiber = fiber;
+    //   return;
+    // }
+    // We matched the next one, we'll now assume that the first one was
+    // superfluous and we'll delete it. Since we can't eagerly delete it
+    // we'll have to schedule a deletion. To do that, this node needs a dummy
+    // fiber associated with it.
+    // deleteHydratableInstance(
+    //   (hydrationParentFiber as any),
+    //   firstAttemptedInstance,
+    // );
+  }
+  hydrationParentFiber = fiber;
+  nextHydratableInstance = getFirstHydratableChild((nextInstance as any));
+}
+
+function updateHostText(current: Fiber|null, workInProgress: Fiber) {
+  debugger
+  if (current === null) {
+    tryToClaimNextHydratableInstance(workInProgress);
+  }
+  // Nothing to do here. This is terminal. We'll do the completion step
+  // immediately after.
+  return null;
+}
 
 function updateHostRoot(current: Fiber | null, workInProgress: Fiber, renderLanes: number): Fiber|null {
-  
+  pushHostRootContext(workInProgress);
+  const updateQueue = workInProgress.updateQueue;
   const nextProps = workInProgress.pendingProps;
-  // cloneUpdateQueue(current, workInProgress);
+  cloneUpdateQueue(current, workInProgress);
   processUpdateQueue(workInProgress, nextProps, null, renderLanes);
   const nextState = workInProgress.memoizedState;
 
@@ -53,7 +248,7 @@ function updateHostComponent(
   workInProgress: Fiber,
   renderLanes: Lanes,
 ):Fiber|null {
-
+    // debugger
     console.log(workInProgress.type,workInProgress.pendingProps)
     // 元素标签
     const type = workInProgress.type;
@@ -76,7 +271,7 @@ function updateHostComponent(
     workInProgress.flags |= ContentReset;
     // 更改为纯文本内容
   }
-
+  // 当前这个存在问题 child返回null
   reconcileChildren(current, workInProgress, nextChildren, renderLanes);
   return workInProgress.child
 }
@@ -188,6 +383,34 @@ function reconcileSingleTextNode(
   return created;
 }
 
+function placeChild(
+  newFiber: Fiber,
+  lastPlacedIndex: number,
+  newIndex: number,
+): number {
+  newFiber.index = newIndex;
+  // if (!shouldTrackSideEffects) { TODO
+  //   // Noop.
+  //   return lastPlacedIndex;
+  // }
+  const current = newFiber.alternate;
+  if (current !== null) {
+    const oldIndex = current.index;
+    if (oldIndex < lastPlacedIndex) {
+      // This is a move.
+      newFiber.flags |= Placement;
+      return lastPlacedIndex;
+    } else {
+      // This item can stay in place.
+      return oldIndex;
+    }
+  } else {
+    // This is an insertion.
+    newFiber.flags |= Placement;
+    return lastPlacedIndex;
+  }
+}
+
 function reconcileChildrenArray( returnFiber: Fiber,
   currentFirstChild: Fiber | null,
   newChildren: Array<any>,
@@ -200,7 +423,34 @@ function reconcileChildrenArray( returnFiber: Fiber,
     let newIdx = 0;
     let nextOldFiber = null;
     for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
+      console.log('%c currentFirstChild这个地方逻辑没写', 'color:blue;background:yellow;')
+    }
+    if (newIdx === newChildren.length) {
+      // We've reached the end of the new children. We can delete the rest.
+      deleteRemainingChildren(returnFiber, oldFiber);
+      return resultingFirstChild;
+    }
 
+    if (oldFiber === null) {
+      // If we don't have any more existing children we can choose a fast path
+      // since the rest will all be insertions.
+      for (; newIdx < newChildren.length; newIdx++) {
+        const newFiber = createChild(returnFiber, newChildren[newIdx], lanes);
+        
+        if (newFiber === null) {
+          continue;
+        }
+        lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
+        if (previousNewFiber === null) {
+          // TODO: Move out of the loop. This only happens for the first run.
+          resultingFirstChild = newFiber;
+        } else {
+          previousNewFiber.sibling = newFiber;
+        }
+        previousNewFiber = newFiber;
+      }
+      console.log('批量创建Fiber', resultingFirstChild)
+      return resultingFirstChild;
     }
     return resultingFirstChild;
 }
@@ -216,6 +466,7 @@ function  mountChildFibers (
   // 根据 newChild的类型来分别处理
   console.log(newChild)
   // 对象
+  // debugger
   const isObject = typeof newChild === 'object' && newChild !== null; // 单个对象
   if(isObject) {
     switch(newChild.$$typeof) { // $$typeof眼熟么 去看看createElement

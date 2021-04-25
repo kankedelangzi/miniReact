@@ -1,4 +1,4 @@
-import  { FiberRoot } from '../type'
+import  { FiberRoot, StackCursor } from '../type'
 import { ImmediatePriority} from '../scheduler/propity'
 const NESTED_UPDATE_LIMIT = 50;
 let nestedUpdateCount: number = 0;
@@ -28,3 +28,5 @@ export function getCurrentPriorityLevel(): ReactPriorityLevel {
   // }
   return ImmediatePriority
 }
+
+

@@ -76,7 +76,12 @@ export function appendInitialChild(
   parentInstance: Instance,
   child: Instance | TextInstance,
 ): void {
-  parentInstance.appendChild(child);
+  if(child) {
+    parentInstance.appendChild(child);
+  } else {
+    console.log('%c child是null', 'color:blue;background:yellow;')
+  }
+  
 }
 
 export function appendAllChildren (

@@ -20,6 +20,8 @@ let nextEffect: Fiber | null = null;
 export function commitRoot(root: FiberRoot) {
   // 优先级
   // getCurrentPriorityLevel 表示获得当前执行优先级
+  console.log('commit root', root)
+  // debugger
   const renderPriorityLevel = getCurrentPriorityLevel() as ReactPriorityLevel;
   // 以指定的优选级执行函数 commitRootImpl 方法
   // ImmediateSchedulerPriority 是最高优先级，表示立即执行 commitRootImpl 方法

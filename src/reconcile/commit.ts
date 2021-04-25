@@ -1,35 +1,41 @@
 import { FiberRoot,HostEffectMask, 
   Fiber,StaticMask, Lanes, ClassComponent,
-  HostText,Snapshot,Container,HostContext,Update,
-  HostRoot,HostComponent, ShouldCapture,DidCapture,
+  HostText,Snapshot,Container,HostContext,Update,mixed,RootExitStatus,
+  HostRoot,HostComponent, ShouldCapture,DidCapture, StackCursor,RootIncomplete,
   ProfileMode, NoMode, Incomplete, NoFlags } from '../type'
 import {  NoLanes,getNextLanes, mergeLanes } from '../reactDom/lane'
 import { createFiber} from '../reactDom/create'
 import { beginWork } from './beginWork'
 import {  commitRoot } from './commitRoot'
-import {  createInstance } from '../reactDom/instance'
+import {  createInstance, createTextInstance } from '../reactDom/instance'
+import { createCursor, NO_CONTEXT, NoContextT , rootInstanceStackCursor } from './fiberStack'
 import { appendAllChildren, finalizeInitialChildren } from '../reactDom/domOperation'
-declare class NoContextT {}
-export type StackCursor<T> = {current: T};
+import {popHydrationState } from './hydrad'
+
+let workInProgressRootIncludedLanes: Lanes = NoLanes;
+// The work left over by components that were visited during this render. Only
+// includes unprocessed updates, not work in bailed out children.
+let workInProgressRootSkippedLanes: Lanes = NoLanes;
+// Lanes that were updated (in an interleaved event) during this render.
+let workInProgressRootUpdatedLanes: Lanes = NoLanes;
+// Lanes that were pinged (in an interleaved event) during this render.
+let workInProgressRootPingedLanes: Lanes = NoLanes;
+let workInProgressRootExitStatus: RootExitStatus = RootIncomplete;
+let workInProgressRootFatalError: mixed = null;
+
 let workInProgressRoot: FiberRoot | null = null;
 let workInProgress: Fiber | null = null;
 let workInProgressRootRenderLanes: Lanes = NoLanes;
 let subtreeRenderLanes: Lanes = NoLanes;
-const NO_CONTEXT: NoContextT = {};
+
 const contextStackCursor: StackCursor<HostContext | NoContextT> = createCursor(
   NO_CONTEXT,
 );
 const enableProfilerTimer = false;
 
-function createCursor<T>(defaultValue: T): StackCursor<T> {
-  return {
-    current: defaultValue,
-  };
-}
 
-const rootInstanceStackCursor: StackCursor<
-  Container | NoContextT
-> = createCursor(NO_CONTEXT);
+
+
 
 function unwindWork(workInProgress: Fiber, renderLanes: Lanes):Fiber|null {
   // debugger
@@ -215,6 +221,7 @@ function completeWork(
       return null;
     }
     case HostComponent: {
+      // debugger
       const type = workInProgress.type
       const rootContainerInstance = getRootHostContainer() as Container;
       const currentHostContext = getHostContext();
@@ -270,7 +277,29 @@ function completeWork(
 
     }
     case HostText: {
-
+      const newText = newProps;
+      if (current && workInProgress.stateNode != null) {
+        // const oldText = current.memoizedProps;
+      
+        // updateHostText(current, workInProgress, oldText, newText);
+      } else {
+        if (typeof newText !== 'string') {
+          // error
+        }
+        const rootContainerInstance = getRootHostContainer();
+        const currentHostContext = getHostContext();
+        const wasHydrated = popHydrationState(workInProgress);
+        if (wasHydrated) {
+          // hydrated
+        } else {
+          workInProgress.stateNode = createTextInstance(
+            newText,
+            rootContainerInstance,
+            currentHostContext,
+            workInProgress,
+          );
+        }
+      }
       bubbleProperties(workInProgress);
       return null;
     }
@@ -295,7 +324,7 @@ function completeWork(
 // 生成错误状态的children。最后forceUnmountCurrentAndReconcile ，清空原来的children , 
 // 最后使用使用新生成的children ,进行协调。
 function completeUnitOfWork(unitOfWork: Fiber): void {
-  // debugger
+
   let completedWork: Fiber|null = unitOfWork;
   do {
      // 当前节点，已刷新，该fiber的状态是备份的。
@@ -377,6 +406,7 @@ function performUnitOfWork(unitOfWork: Fiber):void {
       // If this doesn't spawn new work, complete the current work.
       // 进行共搜
        // 如果没有分配新的工作，完成当前工作
+      //  debugger
       completeUnitOfWork(unitOfWork);
     } else {
       // 如果具有
@@ -390,6 +420,7 @@ function performUnitOfWork(unitOfWork: Fiber):void {
 }
 // 循环遍历performUnitOfWork， 同步更新
 function workLoopSync() {
+  // debugger
   while (workInProgress !== null) {  // 同步更新的时候，一次性更新完
     // 执行更新操作
    console.log('work loop')
@@ -401,12 +432,15 @@ function workLoopSync() {
 export function renderRootSync (root: FiberRoot, lanes: Lanes) {
   // 如果root或者lanes改变，丢弃现有的栈
   // 而且准备一个新的，否则我们会继续离开我们所在的地方
+  // debugger
   if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
     // 准备一个当前fiber节点的克隆 放在全局变量workInProgress中
+
     prepareFreshStack(root, lanes);
     // 不处理
     startWorkOnPendingInteractions(root, lanes);
   }
+
   do {
     try {
       // 进行更新， workLook 
@@ -415,6 +449,7 @@ export function renderRootSync (root: FiberRoot, lanes: Lanes) {
       break;
     } catch (thrownValue) {
       // handleError(root, thrownValue);
+      console.error('函数renderRootSync','进入catch成为死循环', thrownValue)
     }
   } while (true);
   
@@ -478,10 +513,18 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   workInProgressRoot = root;
   workInProgress = createWorkInProgress(root.current, null);
 
+  workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
+  workInProgressRootExitStatus = RootIncomplete;
+  workInProgressRootFatalError = null;
+  workInProgressRootSkippedLanes = NoLanes;
+  workInProgressRootUpdatedLanes = NoLanes;
+  workInProgressRootPingedLanes = NoLanes;
+
 }
 export function performSyncWorkOnRoot(root: FiberRoot) {
   let lanes;
   let exitStatus;
+ 
   lanes = getNextLanes(root, NoLanes);  // 当前lanes
   exitStatus = renderRootSync(root, lanes);  // lanes 
 //   // 标示完成的工作
@@ -489,6 +532,7 @@ export function performSyncWorkOnRoot(root: FiberRoot) {
  root.finishedWork = finishedWork;
  root.finishedLanes = lanes;
 //  // 开始commitRoot的部分
+
  commitRoot(root);
 }
 

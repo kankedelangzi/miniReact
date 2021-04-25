@@ -32,7 +32,9 @@ export type WorkTag =| 0| 1| 2| 3| 4| 5| 6| 7 | 8| 9| 10| 11
   | 23
   | 24;
 
+export type RootExitStatus = 0 | 1 | 2 | 3 | 4 | 5;
 
+export const RootIncomplete = 0;
   export type ReactPriorityLevel = 99 | 98 | 97 | 96 | 95 | 90|-1;
 
 export type TypeOfMode = number;
@@ -105,7 +107,7 @@ export type Lanes = number;
 export type Lane = number;
 export type LaneMap<T> = Array<T>;
 
-
+export type HydratableInstance = Instance | TextInstance | SuspenseInstance;
 
 
 export type Flags = number
@@ -401,3 +403,6 @@ export type PropertyInfo = {
   sanitizeURL: boolean,
   removeEmptyString: boolean,
 };
+
+
+export type StackCursor<T> = {current: T};

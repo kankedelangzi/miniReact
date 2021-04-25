@@ -1,4 +1,4 @@
-import { RootOptions, RootType, Container, HostText,
+import { RootOptions, RootType, Container, HostText,REACT_ELEMENT_TYPE,IReactElement,
   LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,ProfileMode,
   Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,IndeterminateComponent,
   HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap}  from '../type/index'
@@ -268,4 +268,92 @@ export function createFiberFromText(
   const fiber = createFiber(HostText, content, null, mode);
   fiber.lanes = lanes;
   return fiber;
+}
+
+export function createFiberFromElement(
+  element: IReactElement,
+  mode: TypeOfMode,
+  lanes: Lanes,
+): Fiber {
+  let owner = null;
+
+  const type = element.type;
+  const key = element.key;
+  const pendingProps = element.props;
+  const fiber = createFiberFromTypeAndProps(
+    type,
+    key,
+    pendingProps,
+    owner,
+    mode,
+    lanes,
+  );
+
+  return fiber;
+}
+
+export function createChild(
+  returnFiber: Fiber,
+  newChild: any,
+  lanes: Lanes,
+): Fiber | null {
+  if (typeof newChild === 'string' || typeof newChild === 'number') {
+    // Text nodes don't have keys. If the previous node is implicitly keyed
+    // we can continue to replace it without aborting even if it is not a text
+    // node.
+    const created = createFiberFromText(
+      '' + newChild,
+      returnFiber.mode,
+      lanes,
+    );
+    created.return = returnFiber;
+    return created;
+  }
+
+  if (typeof newChild === 'object' && newChild !== null) {
+    switch (newChild.$$typeof) {
+      case REACT_ELEMENT_TYPE: {
+        const created = createFiberFromElement(
+          newChild,
+          returnFiber.mode,
+          lanes,
+        );
+        // created.ref = coerceRef(returnFiber, null, newChild);
+        created.return = returnFiber;
+        return created;
+      }
+      // case REACT_PORTAL_TYPE: {
+      //   // const created = createFiberFromPortal(
+      //   //   newChild,
+      //   //   returnFiber.mode,
+      //   //   lanes,
+      //   // );
+      //   // created.return = returnFiber;
+      //   // return created;
+      //   break;
+      // }
+      // case REACT_LAZY_TYPE: {
+      //   // if (enableLazyElements) {
+      //   //   const payload = newChild._payload;
+      //   //   const init = newChild._init;
+      //   //   return createChild(returnFiber, init(payload), lanes);
+      //   // }
+      // }
+    }
+
+    // if (isArray(newChild) || getIteratorFn(newChild)) {
+    //   const created = createFiberFromFragment(
+    //     newChild,
+    //     returnFiber.mode,
+    //     lanes,
+    //     null,
+    //   );
+    //   created.return = returnFiber;
+    //   return created;
+    // }
+
+    // throwOnInvalidObjectType(returnFiber, newChild);
+  }
+
+  return null;
 }

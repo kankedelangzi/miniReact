@@ -10,12 +10,13 @@ export function scheduleUpdateOnFiber( fiber: Fiber,  // 触发fiber
   // 检查是否溢出
   checkForNestedUpdates();
   // 处理 render中调用setState
-
-
+  // debugger
+  console.log('scheduleUpdateOnFiber',fiber)
   // 找寻fiberRoot, 并标识所有父fiber 的 childLanes
   // 1 标示source fiber 的lanes    sourrce 的alter的alne
   // 2 标示source fiber  所有父节点的 childLanes 对应 alternate 的childLanes
   // 3  返回fiberROot
+
   // TODO这样做的目的是什么
   const root = markUpdateLaneFromFiberToRoot(fiber, lane);
   // root 不存在时， 开发报错  fiberRoot 
@@ -36,6 +37,7 @@ export function scheduleUpdateOnFiber( fiber: Fiber,  // 触发fiber
   if(lane === SyncLane) {
     // 同步更新的时候
     //初始化非批量同步更新
+
     performSyncWorkOnRoot(root);
   } else {
     // 异步的更新的时候
@@ -57,7 +59,7 @@ export function scheduleUpdateOnFiber( fiber: Fiber,  // 触发fiber
 
 function markUpdateLaneFromFiberToRoot( sourceFiber: Fiber,lane: Lane,): FiberRoot|null {
   let alternate = sourceFiber.alternate;
-  console.log(alternate)
+  console.log('alternate',alternate)
   let node = sourceFiber;
   let parent = sourceFiber.return;
   while(parent !== null) {

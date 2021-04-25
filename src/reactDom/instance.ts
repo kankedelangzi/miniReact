@@ -1,4 +1,6 @@
-import { Instance } from '../type'
+import { Instance, HydratableInstance,
+   ELEMENT_NODE, TextInstance, TEXT_NODE, Fiber} from '../type'
+import { NoContextT } from '../reconcile/fiberStack'
 import { Namespaces, getIntrinsicNamespace } from './domNameSpace'
 import {  Props, DOCUMENT_NODE, Container } from '../type'
 import { updateFiberProps } from './tools'
@@ -31,11 +33,39 @@ export function createInstance(
   return domElement;
 }
 
+// export function precacheFiberNode(
+//   hostInst: Fiber,
+//   node: Instance | TextInstance | SuspenseInstance | ReactScopeInstance,
+// ): void {
+//   (node as any)[internalInstanceKey] = hostInst;
+// }
+
+export function createTextInstance(
+  text: string,
+  rootContainerInstance: NoContextT| Container,
+  hostContext: HostContext,
+  internalInstanceHandle: Object,
+): TextInstance {
+ 
+  const textNode: TextInstance = createTextNode(text, rootContainerInstance as any);
+  // precacheFiberNode(internalInstanceHandle, textNode);
+  return textNode;
+}
+
+export function createTextNode(
+  text: string,
+  rootContainerElement: Element | Document,
+): Text {
+  return getOwnerDocumentFromRootContainer(rootContainerElement).createTextNode(
+    text,
+  );
+}
 
 
 function getOwnerDocumentFromRootContainer(
   rootContainerElement: Element | Document,
 ): Document {
+  // debugger
   return rootContainerElement.nodeType === DOCUMENT_NODE
     ? (rootContainerElement) as any
     : rootContainerElement.ownerDocument;
@@ -47,6 +77,7 @@ export function createElement(
   rootContainerElement: Element | Document,
   parentNamespace: string,
 ): Element {
+  // debugger
   // let isCustomComponentTag;
 
   // We create tags in the namespace of their parent container, except HTML
@@ -90,3 +121,73 @@ export function createElement(
   return domElement;
 }
 
+
+export function canHydrateInstance(
+  instance: HydratableInstance|null,
+  type: string,
+  props: Props,
+): null | Instance {
+  if(!instance) {
+    return null;
+  }
+  if (
+    instance.nodeType !== ELEMENT_NODE ||
+    type.toLowerCase() !== instance.nodeName.toLowerCase()
+  ) {
+    return null;
+  }
+  // This has now been refined to an element node.
+  return (instance as Instance);
+}
+
+export function canHydrateTextInstance(
+  instance: HydratableInstance|null,
+  text: string,
+): null | TextInstance {
+  if(!instance) {
+    return null;
+  }
+  if (text === '' || instance.nodeType !== TEXT_NODE) {
+    // Empty strings are not parsed by HTML so there won't be a correct match here.
+    return null;
+  }
+  // This has now been refined to a text node.
+  return (instance as TextInstance);
+}
+
+function getNextHydratable(node: HydratableInstance | null) {
+  // Skip non-hydratable nodes.
+  // if(!node) return node;
+  for (; node != null; node = node.nextSibling as  HydratableInstance | null) {
+    const nodeType = node.nodeType;
+    if (nodeType === ELEMENT_NODE || nodeType === TEXT_NODE) {
+      break;
+    }
+    // if (enableSuspenseServerRenderer) {
+    //   if (nodeType === COMMENT_NODE) {
+    //     const nodeData = (node: any).data;
+    //     if (
+    //       nodeData === SUSPENSE_START_DATA ||
+    //       nodeData === SUSPENSE_FALLBACK_START_DATA ||
+    //       nodeData === SUSPENSE_PENDING_START_DATA
+    //     ) {
+    //       break;
+    //     }
+    //   }
+    // }
+  }
+  return (node as any);
+}
+
+export function getNextHydratableSibling(
+  instance: HydratableInstance | null,
+): null | HydratableInstance {
+  if(!instance) return null;
+  return getNextHydratable(instance.nextSibling as HydratableInstance | null);
+}
+export function getFirstHydratableChild(
+  parentInstance: Container | Instance |null,
+): null | HydratableInstance {
+  if(!parentInstance) return null;
+  return getNextHydratable(parentInstance.firstChild as HydratableInstance | null);
+}
