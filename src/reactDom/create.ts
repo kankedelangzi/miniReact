@@ -255,7 +255,7 @@ export function createFiberFromTypeAndProps(
 
   let fiberTag: WorkTag = IndeterminateComponent;
   let resolvedType = type;
-  debugger
+  // debugger
   if (typeof type === 'function') {
     if (shouldConstruct(type)) {
       fiberTag = ClassComponent;
@@ -265,8 +265,9 @@ export function createFiberFromTypeAndProps(
     }
   } else if (typeof type === 'string') {
     fiberTag = HostComponent;
-  } 
-  console.log('createFiberFromTypeAndProps')
+  } else {
+    console.log('%c createFiberFromTypeAndProps出现了新类型未处理', 'color:blue;background:red;')
+  }
  
   const fiber = createFiber(fiberTag, pendingProps, key, mode);
   fiber.elementType = type;

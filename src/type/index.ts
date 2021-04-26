@@ -245,7 +245,7 @@ export interface Fiber {
   // // Effect
   flags: Flags,
   subtreeFlags: Flags,
-  deletions: Array<Fiber> | null,
+  deletions: Array<Fiber> | null, // 要删除的child列表
 
   // // Singly linked list fast path to the next fiber with side-effects.
   // nextEffect: Fiber | null,

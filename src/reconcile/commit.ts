@@ -446,7 +446,7 @@ export function renderRootSync (root: FiberRoot, lanes: Lanes) {
     // 不处理
     startWorkOnPendingInteractions(root, lanes);
   }
-  debugger
+  // debugger
   do {
     try {
       // 进行更新， workLook 

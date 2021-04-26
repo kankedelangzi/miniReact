@@ -112,7 +112,7 @@ export function mountIndeterminateComponent(
   
   // React DevTools reads this flag.
   workInProgress.flags |= PerformedWork;
-
+  debugger
 
   if (
     // Run these checks in production only if the flag is off.
@@ -124,7 +124,7 @@ export function mountIndeterminateComponent(
     value.$$typeof === undefined
   ) {
     
-
+   
     // Proceed under the assumption that this is a class instance
     workInProgress.tag = ClassComponent;
 

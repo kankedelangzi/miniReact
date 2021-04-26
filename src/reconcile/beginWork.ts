@@ -4,15 +4,16 @@ import { Fiber, Lanes, Update, UpdateQueue,
    HydratableInstance,Instance,TextInstance,
    IndeterminateComponent,
   TypeOfMode,ChildDeletion, HostText,HostComponent,
-  ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot } from '../type/index'
+  ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot, mixed, FunctionComponent } from '../type/index'
 import { shouldSetTextContent } from '../reactDom/tools'
-import {  createFiberFromTypeAndProps, createFiberFromText } from '../reactDom/create'
+import {  createFiberFromElement, createFiberFromText } from '../reactDom/create'
 import { createCursor, push, pop, rootInstanceStackCursor, NoContextT, NO_CONTEXT } from './fiberStack'
 import { } from './tools'
 import { getRootHostContext } from '../reactDom/context'
 import { createChild } from '../reactDom/create'
 import { mountIndeterminateComponent} from './functionComponent'
 import { canHydrateInstance, canHydrateTextInstance, getNextHydratableSibling, getFirstHydratableChild } from '../reactDom/instance'
+import { createWorkInProgress } from './commit'
 const isArray = Array.isArray;
 let didReceiveUpdate: boolean = false;
 export const disableLegacyContext = false;
@@ -43,7 +44,21 @@ export function beginWork(
       return updateHostComponent(current, workInProgress, renderLanes)
     case HostText:
       return updateHostText(current, workInProgress);
-    
+    // case FunctionComponent: {
+    //   const Component = workInProgress.type;
+    //   const unresolvedProps = workInProgress.pendingProps;
+    //   const resolvedProps =
+    //     workInProgress.elementType === Component
+    //       ? unresolvedProps
+    //       : resolveDefaultProps(Component, unresolvedProps);
+    //   return updateFunctionComponent(
+    //     current,
+    //     workInProgress,
+    //     Component,
+    //     resolvedProps,
+    //     renderLanes,
+    //   );
+    // }
     default:
       console.log('%c beginWork 这种类型的tag没有处理逻辑',  
       'color:red;background:yellow;', workInProgress.tag)
@@ -302,30 +317,17 @@ function placeSingleChild(newFiber: Fiber): Fiber {
 }
 
 
-function createFiberFromElement(element: IReactElement,
-  mode: TypeOfMode,
-  lanes: Lanes,): Fiber {
-  const owner = null;
-  const type = element.type;
-  const key = element.key;
-  const pendingProps = element.props;
-  const fiber = createFiberFromTypeAndProps(
-    type,
-    key,
-    pendingProps,
-    owner,
-    mode,
-    lanes,
-  );
-  return fiber
-}
+
 
 function deleteChild(returnFiber: Fiber, childToDelete: Fiber): void {
+  // 首次渲染，无需删除，这是一个优化成分，暂时注释，之后处理
   // if (!shouldTrackSideEffects) {
   //   // Noop.
   //   return;
   // }
+  // 获取父节点的deletion链， 将待删除元素放入
   const deletions = returnFiber.deletions;
+  // 父元素之前没有deletions需要给flag添加一个标记
   if (deletions === null) {
     returnFiber.deletions = [childToDelete];
     returnFiber.flags |= ChildDeletion;
@@ -334,18 +336,16 @@ function deleteChild(returnFiber: Fiber, childToDelete: Fiber): void {
   }
 }
 
-
+/*
+  deleteRemainingChildren 循环调用了 deleteChild。
+  deleteChild 用于删除单个节点，其实是为要删除的子节点们做 Deletion 标记，
+  用于在 commit 阶段正式删。
+*/
 function deleteRemainingChildren(
   returnFiber: Fiber,
   currentFirstChild: Fiber | null,
 ): null {
-  // if (!shouldTrackSideEffects) {
-  //   // Noop.
-  //   return null;
-  // }
-
-  // TODO: For the shouldClone case, this could be micro-optimized a bit by
-  // assuming that after the first child we've already added everything.
+ 
   let childToDelete = currentFirstChild;
   while (childToDelete !== null) {
     deleteChild(returnFiber, childToDelete);
@@ -353,6 +353,8 @@ function deleteRemainingChildren(
   }
   return null;
 }
+
+
 //  备注：child 非空就是更新， 为空为新增。更新时，循环遍历子节点，(1)当key相同和对应类型符合时
 //，分fragment, protal和其他情况，进行复用，并删除剩余节点。 key符合， 当类型不匹配时，
 // 删除当前节点， (2) key和类型不匹配时，删除当前fiber。 在新增时，分frament 和其他情况创建
@@ -439,7 +441,7 @@ function reconcileChildrenArray( returnFiber: Fiber,
     let newIdx = 0;
     let nextOldFiber = null;
     for (; oldFiber !== null && newIdx < newChildren.length; newIdx++) {
-      console.log('%c currentFirstChild这个地方逻辑没写', 'color:blue;background:yellow;')
+      console.log('%c reconcileChildrenArray这个地方逻辑没写', 'color:blue;background:yellow;')
     }
     if (newIdx === newChildren.length) {
       // We've reached the end of the new children. We can delete the rest.
@@ -448,8 +450,7 @@ function reconcileChildrenArray( returnFiber: Fiber,
     }
 
     if (oldFiber === null) {
-      // If we don't have any more existing children we can choose a fast path
-      // since the rest will all be insertions.
+   
       for (; newIdx < newChildren.length; newIdx++) {
         const newFiber = createChild(returnFiber, newChildren[newIdx], lanes);
         
@@ -468,8 +469,175 @@ function reconcileChildrenArray( returnFiber: Fiber,
       console.log('批量创建Fiber', newChildren, resultingFirstChild)
       return resultingFirstChild;
     }
+
+     // 执行到这里，表示上面两种情况都不符合，则代表有可能顺序换了或者有新增或删减
+    // 其实第一个循环的break 基本就是到这了，因为key不同，肯定很少进入上边两个逻辑
+    
+    // Add all children to a key map for quick lookups.
+    // 创建一个existingChildren代表所有剩余没有匹配掉的节点，
+    // 然后新的数组根据key从这个 map 里面查找，如果有则复用，没有则新建
+    // 这里提供了一个非常棒的思路，之后对比一些深度较大的diff可以采用这种方式，很高效
+    const existingChildren = mapRemainingChildren(returnFiber, oldFiber);
+
+    // Keep scanning and use the map to restore deleted items as moves.
+    for (; newIdx < newChildren.length; newIdx++) {
+      const newFiber = updateFromMap(
+        existingChildren,
+        returnFiber,
+        newIdx,
+        newChildren[newIdx],
+        lanes,
+      );
+      if (newFiber !== null) {
+        // if (shouldTrackSideEffects) {
+        //   if (newFiber.alternate !== null) {
+        //     // The new fiber is a work in progress, but if there exists a
+        //     // current, that means that we reused the fiber. We need to delete
+        //     // it from the child list so that we don't add it to the deletion
+        //     // list.
+        //     existingChildren.delete(
+        //       newFiber.key === null ? newIdx : newFiber.key,
+        //     );
+        //   }
+        // }
+        lastPlacedIndex = placeChild(newFiber, lastPlacedIndex, newIdx);
+        if (previousNewFiber === null) {
+          resultingFirstChild = newFiber;
+        } else {
+          previousNewFiber.sibling = newFiber;
+        }
+        previousNewFiber = newFiber;
+      }
+    }
+
+    // if (shouldTrackSideEffects) {
+    //   // Any existing children that weren't consumed above were deleted. We need
+    //   // to add them to the deletion list.
+    //   existingChildren.forEach(child => deleteChild(returnFiber, child));
+    // }
+
     return resultingFirstChild;
 }
+
+function mapRemainingChildren(
+  returnFiber: Fiber,
+  currentFirstChild: Fiber,
+): Map<string | number, Fiber> {
+  // Add the remaining children to a temporary map so that we can find them by
+  // keys quickly. Implicit (null) keys get added to this set with their index
+  // instead.
+  const existingChildren: Map<string | number, Fiber> = new Map();
+
+  let existingChild: Fiber|null = currentFirstChild;
+  while (existingChild !== null) {
+    if (existingChild.key !== null) {
+      existingChildren.set(existingChild.key, existingChild);
+    } else {
+      existingChildren.set(existingChild.index, existingChild);
+    }
+    existingChild = existingChild.sibling;
+  }
+  return existingChildren;
+}
+// 这里改成这样命名是因为eslint会检索useXxx认为是一个hooks
+function use_fiber(fiber: Fiber, pendingProps: mixed): Fiber {
+  // We currently set sibling to null and index to 0 here because it is easy
+  // to forget to do before returning it. E.g. for the single child case.
+  
+  const clone = createWorkInProgress(fiber, pendingProps);
+  clone.index = 0;
+  clone.sibling = null;
+  return clone;
+}
+
+
+function updateTextNode(
+  returnFiber: Fiber,
+  current: Fiber | null,
+  textContent: string,
+  lanes: Lanes,
+) {
+  if (current === null || current.tag !== HostText) {
+    // Insert
+    const created = createFiberFromText(textContent, returnFiber.mode, lanes);
+    created.return = returnFiber;
+    return created;
+  } else {
+    // Update
+    const existing = use_fiber(current, textContent);
+    existing.return = returnFiber;
+    return existing;
+  }
+}
+
+function updateFromMap(
+  existingChildren: Map<string | number, Fiber>,
+  returnFiber: Fiber,
+  newIdx: number,
+  newChild: any,
+  lanes: Lanes,
+): Fiber | null {
+  if (typeof newChild === 'string' || typeof newChild === 'number') {
+    // Text nodes don't have keys, so we neither have to check the old nor
+    // new node for the key. If both are text nodes, they match.
+    const matchedFiber = existingChildren.get(newIdx) || null;
+    return updateTextNode(returnFiber, matchedFiber, '' + newChild, lanes);
+  }
+
+  if (typeof newChild === 'object' && newChild !== null) {
+    switch (newChild.$$typeof) {
+      case REACT_ELEMENT_TYPE: {
+        const matchedFiber =
+          existingChildren.get(
+            newChild.key === null ? newIdx : newChild.key,
+          ) || null;
+        return updateElement(returnFiber, matchedFiber, newChild, lanes);
+      }
+      
+    
+    }
+
+    // if (isArray(newChild) || getIteratorFn(newChild)) {
+    //   const matchedFiber = existingChildren.get(newIdx) || null;
+    //   return updateFragment(returnFiber, matchedFiber, newChild, lanes, null);
+    // }
+
+    // throwOnInvalidObjectType(returnFiber, newChild);
+  }
+
+  
+
+  return null;
+}
+function updateElement(
+  returnFiber: Fiber,
+  current: Fiber | null,
+  element: IReactElement,
+  lanes: Lanes,
+): Fiber {
+  const elementType = element.type;
+  // if (elementType === REACT_FRAGMENT_TYPE) {
+    
+  // }
+  if (current !== null) {
+    if (
+      current.elementType === elementType  
+    ) {
+      // Move based on index
+      const existing = use_fiber(current, element.props);
+      // existing.ref = coerceRef(returnFiber, current, element);
+      existing.return = returnFiber;
+      
+      return existing;
+    }
+  }
+  // Insert
+  const created = createFiberFromElement(element, returnFiber.mode, lanes);
+  // created.ref = coerceRef(returnFiber, current, element);
+  created.return = returnFiber;
+  return created;
+}
+
 
 // 协调fiber 对应的子fibler的函数
 function  mountChildFibers (
@@ -478,7 +646,7 @@ function  mountChildFibers (
   newChild: any,
   lanes: Lanes,
 ): Fiber | null {
-
+  debugger
   // 根据 newChild的类型来分别处理
   console.log(newChild)
   // 对象
@@ -526,6 +694,18 @@ function  mountChildFibers (
 
 }
 const reconcileChildFibers = mountChildFibers
+/*
+  1. reconcileChildren 中，处理了三种情况，第一种是子节点为 object，第二种是子节点为字符串或者是数字，第三种是子节点为 array。
+
+  2. 新的子节点为 object，遍历老的 children，找到和新的 children 中第一个 key 和节点类型相同的节点，直接复用这个节点，删除老节点中其余节点。
+
+  3. 新的子节点为字符串或者是数字，找老的children中的第一个节点，如果是文字节点就复用。
+
+  4. reconcileChildren 过程中，并没有真正的删除节点，而是给节点做标记，后续 Commit 阶段完成真正删除，这样的好处就是抽取除了公共的平台无关的逻辑，相当于AST，代码纯粹，可移植性很强。
+
+  5. React 的 Fiber 对象的复用，其实是复用了 alternate，并没有真正的创建一个新对象，current 和 alternate 对象交替使用，不用重复创建资源。
+
+*/
 export function reconcileChildren(current: Fiber | null,workInProgress: Fiber,nextChildren: any, 
 renderLanes: Lanes,) {
   
