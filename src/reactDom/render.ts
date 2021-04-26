@@ -1,10 +1,14 @@
 import { ReactNodeList, RootType, Container, FiberRoot}  from '../type/index'
-import { getPublicRootInstance } from './tools'
+import { getPublicRootInstance, requestEventTime, getContextForSubtree} from './tools'
+import { createLegacyRoot } from './create'
+import { requestUpdateLane} from './lane'
+import { createUpdate, enqueueUpdate} from './update'
+import { scheduleUpdateOnFiber } from '../reconcile'
 interface IlegacyRenderSubtreeIntoContainerProps {
   parentComponent: any, // 父组件
-  children: ReactNodeList,
+  children: ReactNodeList, // 就是babel翻译后的createElement返回的ReactElement节点
   container: Container,
-  forceHydrate: boolean,
+  forceHydrate: boolean, // 是否融合，即服务端渲染
   callback?: Function,
 }
 export function legacyRenderSubtreeIntoContainer(props: IlegacyRenderSubtreeIntoContainerProps) {
@@ -21,13 +25,14 @@ export function legacyRenderSubtreeIntoContainer(props: IlegacyRenderSubtreeInto
       container,
       forceHydrate,
     );
-
+    console.log('container', container, 'root',root, children);
     fiberRoot = root._internalRoot;
     // Initial mount should not be batched.
-    // 对于首次挂载来说，更新操作不应该是批量的，所以会先执行unbatchedUpdates方法
-    // 该方法中会将executionContext(执行上下文)切换成LegacyUnbatchedContext(非批量上下文)
-    // 切换上下文之后再调用updateContainer执行更新操作
-    // 执行完updateContainer之后再将executionContext恢复到之前的状态
+    // 将执行上下文(executionContext)切换成 LegacyUnbatchedContext (非批量上下文)；
+    // 调用 updateContainer 执行更新操作；
+    // 将执行上下文(executionContext)恢复到之前的状态；
+    // 如果之前的执行上下文是 NoContext，则调用 flushSyncCallbackQueue 刷新同步回调队列。
+   
     unbatchedUpdates(() => {
       updateContainer(children, fiberRoot, parentComponent, callback);
     });
@@ -40,21 +45,96 @@ export function legacyRenderSubtreeIntoContainer(props: IlegacyRenderSubtreeInto
   return getPublicRootInstance(fiberRoot);
 }
 
-export function legacyCreateRootFromDOMContainer( container: Container,
-  forceHydrate: boolean,) {
-    // 
-    return {} as RootType
+
+// 注： 此函数的作用是根据是否强制融合（服务端渲染），不融合的情况下清除掉 container的子节点
+export function legacyCreateRootFromDOMContainer( container: Container,forceHydrate: boolean,) {
+    // 判断是否需要融合(服务端渲染)
+    // const shouldHydrate =
+    // forceHydrate || shouldHydrateDueToLegacyHeuristic(container);
+    const shouldHydrate = false
+
+    // First clear any existing content.
+    //针对客户端渲染的情况，需要将container容器中的所有元素移除
+    if (!shouldHydrate) {
+      let rootSibling;
+      while ((rootSibling = container.lastChild)) {
+        container.removeChild(rootSibling);
+      }
+    }
+
+
+    return createLegacyRoot(
+      container,
+      shouldHydrate
+        ? {
+            hydrate: true,
+          }
+        : undefined,
+    );
 
 }
 
-export function unbatchedUpdates(callback: () => void) {
+export function unbatchedUpdates<A, R>(callback: (a?: A) => R, a?: A):R {
   //
+  try {
+    return callback(a);
+  } finally {
+    // todo
+  }
 }
 
-export function updateContainer( element: ReactNodeList,
-  container: any,
+// 主体逻辑： 新建lane 和eventTime， 获取context, 开始进行调度
+//  进行调度
+export function updateContainer( 
+  element: ReactNodeList,
+  container: FiberRoot,
   parentComponent?: any,
   callback?: Function) {
+  if(!container) {
+    return ;
+  }
   //
+  const current = container.current;
+  if(!current) {
+    return ;
+  }
+  const eventTime = requestEventTime();
+  const lane = requestUpdateLane(current)
+   // 获取当前节点和子节点的上下文  // 第一次执行到这传入的是null返回的是{}
+  const context = getContextForSubtree(parentComponent);// {}
+
+  if (container.context === null) {
+    container.context = context;
+  } else {
+    container.pendingContext = context;
+  }
+  console.log(container, 'container')
+
+
+  /**
+   * 得到一个update对象 没有任何其他处理 UpdateState 此时是0
+   * {
+        eventTime,
+        lane,
+
+        tag: UpdateState,
+        payload: null,
+        callback: null,
+
+        next: null,
+    }
+   */
+  const update = createUpdate(eventTime, lane);
+  // todo 目前并没有弄清楚这个在哪使用的，后续跟进
+  update.payload = {element};
+  
+  enqueueUpdate(current, update, lane);
+ console.log('current', current)
+  const root = scheduleUpdateOnFiber(current, lane, eventTime);
+  // if (root !== null) {
+  //   entangleTransitions(root, current, lane);
+  // }
+
+  return lane;
 }
 

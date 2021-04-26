@@ -1,43 +1,24 @@
 
 
 export let REACT_ELEMENT_TYPE = 0xeac7;
-export type IReactElement = {
- 
-  $$typeof: number,
-  type: string|null,
-  key: string |null,
-  ref: string|null,
-  props: {[key: string]: any},
-  _owner: string,
-};
+
 export type ReactText = string | number;
 export const HostComponent = 5;
+export const FunctionComponent = 0;
 export type ReactNode = IReactElement|ReactText
+export const IndeterminateComponent = 2; // Before we know whether it is function or class
 export type ReactEmpty = null | void | boolean;
 export type ReactNodeList = ReactEmpty | ReactNode;
-
-export type RootType = {
-  render(children: ReactNodeList): void,
-  unmount(): void,
-  _internalRoot: FiberRoot,
-};
-
-export interface Container extends Element {
-  _reactRootContainer: RootType
-}
-export type WorkTag =
-  | 0
-  | 1
-  | 2
-  | 3
-  | 4
-  | 5
-  | 6
-  | 7
-  | 8
-  | 9
-  | 10
-  | 11
+export const HostRoot = 3;
+export const HostText = 6;
+export const HostPortal = 4; 
+export const DehydratedFragment = 18;
+export type RootTag = 0 | 1 | 2;
+export const LegacyRoot = 0;
+export const BlockingRoot = 1;
+export const ClassComponent = 1;
+export const ConcurrentRoot = 2;
+export type WorkTag =| 0| 1| 2| 3| 4| 5| 6| 7 | 8| 9| 10| 11
   | 12
   | 13
   | 14
@@ -52,6 +33,142 @@ export type WorkTag =
   | 23
   | 24;
 
+export type RootExitStatus = 0 | 1 | 2 | 3 | 4 | 5;
+
+export const RootIncomplete = 0;
+  export type ReactPriorityLevel = 99 | 98 | 97 | 96 | 95 | 90|-1;
+
+export type TypeOfMode = number;
+
+export const NoMode = /*            */ 0b000000;
+// TODO: Remove BlockingMode and ConcurrentMode by reading from the root tag instead
+export const BlockingMode = /*      */ 0b000001;
+export const ConcurrentMode = /*    */ 0b000010;
+export const ProfileMode = /*       */ 0b000100;
+export const DebugTracingMode = /*  */ 0b001000;
+export const StrictLegacyMode = /*  */ 0b010000;
+export const StrictEffectsMode = /* */ 0b100000;
+
+// Don't change these two values. They're used by React Dev Tools.
+export const NoFlags = /*                      */ 0b00000000000000000000;
+export const PerformedWork = /*                */ 0b00000000000000000001;
+
+// You can change the rest (and add more).
+export const Placement = /*                    */ 0b00000000000000000010;
+export const Update = /*                       */ 0b00000000000000000100;
+export const PlacementAndUpdate = /*           */ Placement | Update;
+export const Deletion = /*                     */ 0b00000000000000001000;
+export const ChildDeletion = /*                */ 0b00000000000000010000;
+export const ContentReset = /*                 */ 0b00000000000000100000;
+export const Callback = /*                     */ 0b00000000000001000000;
+export const DidCapture = /*                   */ 0b00000000000010000000;
+export const Ref = /*                          */ 0b00000000000100000000;
+export const Snapshot = /*                     */ 0b00000000001000000000;
+export const Passive = /*                      */ 0b00000000010000000000;
+export const Hydrating = /*                    */ 0b00000000100000000000;
+export const HydratingAndUpdate = /*           */ Hydrating | Update;
+export const Visibility = /*                   */ 0b00000001000000000000;
+
+// Union of all commit flags (flags with the lifetime of a particular commit)
+export const HostEffectMask = /*               */ 0b00000001111111111111;
+
+// These are not really side effects, but we still reuse this field.
+export const Incomplete = /*                   */ 0b00000010000000000000;
+export const ShouldCapture = /*                */ 0b00000100000000000000;
+// TODO (effects) Remove this bit once the new reconciler is synced to the old.
+export const PassiveUnmountPendingDev = /*     */ 0b00001000000000000000;
+export const ForceUpdateForLegacySuspense = /* */ 0b00010000000000000000;
+export const PassiveStatic = /*                */ 0b00100000000000000000;
+export const enableCreateEventHandleAPI = false;
+export const StaticMask = PassiveStatic;
+
+export const BeforeMutationMask =
+  // TODO: Remove Update flag from before mutation phase by re-landing Visiblity
+  // flag logic (see #20043)
+  Update |
+  Snapshot |
+  (enableCreateEventHandleAPI
+    ? // createEventHandle needs to visit deleted and hidden trees to
+      // fire beforeblur
+      // TODO: Only need to visit Deletions during BeforeMutation phase if an
+      // element is focused.
+      ChildDeletion | Visibility
+    : 0);
+
+export const MutationMask =
+  Placement |
+  Update |
+  ChildDeletion |
+  ContentReset |
+  Ref |
+  Hydrating |
+  Visibility;
+
+export type Lanes = number;
+export type Lane = number;
+export type LaneMap<T> = Array<T>;
+
+export type HydratableInstance = Instance | TextInstance | SuspenseInstance;
+
+
+export type Flags = number
+
+export type ReactProviderType<T> = {
+  $$typeof: Symbol | number,
+  _context: ReactContext<T>,
+};
+
+export type ReactContext<T> = {
+  $$typeof: Symbol | number,
+  Consumer: ReactContext<T>,
+  Provider: ReactProviderType<T>,
+  _calculateChangedBits: ((a: T, b: T) => number) | null,
+  _currentValue: T,
+  _currentValue2: T,
+  _threadCount: number,
+  // DEV only
+  _currentRenderer?: Object | null,
+  _currentRenderer2?: Object | null,
+  // This value may be added by application code
+  // to improve DEV tooling display names
+  displayName?: string,
+
+};
+
+export type ContextDependency<T> = {
+  context: ReactContext<T>,
+  observedBits: number,
+  next: ContextDependency<mixed> | null,
+
+};
+
+export type IReactElement = {
+ 
+  $$typeof: number,
+  type: string|null,
+  key: string |null,
+  ref: string|null,
+  props: {[key: string]: any},
+  _owner: string,
+};
+
+export type RootType = {
+  render(children: ReactNodeList): void,
+  unmount(): void,
+  _internalRoot: FiberRoot,
+};
+
+export interface Container extends Element {
+  _reactRootContainer: RootType
+  [key: string]: any
+}
+
+export type Instance = Element;
+export type Cache = Map<() => any, any>;
+export type Dependencies = {
+  lanes: Lanes,
+  firstContext: ContextDependency<mixed> | null,
+};
 
 export interface Fiber {
   // // These first fields are conceptually members of an Instance. This used to
@@ -68,14 +185,14 @@ export interface Fiber {
   tag: WorkTag,
 
   // // Unique identifier of this child.
-  // key: null | string,
+  key: null | string,
 
   // // The value of element.type which is used to preserve the identity during
   // // reconciliation of this child.
-  // elementType: any,
+  elementType: any,
 
   // // The resolved function/class/ associated with this fiber.
-  // type: any,
+  type: any,
 
   // // The local state associated with this fiber.
   stateNode: any,
@@ -105,17 +222,17 @@ export interface Fiber {
   //   | RefObject,
 
   // // Input is the data coming into process this fiber. Arguments. Props.
-  // pendingProps: any, // This type will be more specific once we overload the tag.
-  // memoizedProps: any, // The props used to create the output.
+  pendingProps: any, // This type will be more specific once we overload the tag.
+  memoizedProps: any, // The props used to create the output.
 
   // // A queue of state updates and callbacks.
-  // updateQueue: mixed,
+  updateQueue: mixed,
 
   // // The state used to create the output
-  // memoizedState: any,
+  memoizedState: any,
 
-  // // Dependencies (contexts, events) for this fiber, if it has any
-  // dependencies: Dependencies | null,
+  // Dependencies (contexts, events) for this fiber, if it has any
+  dependencies: Dependencies | null,
 
   // // Bitfield that describes properties about the fiber and its subtree. E.g.
   // // the ConcurrentMode flag indicates whether the subtree should be async-by-
@@ -123,12 +240,12 @@ export interface Fiber {
   // // parent. Additional flags can be set at creation time, but after that the
   // // value should remain unchanged throughout the fiber's lifetime, particularly
   // // before its child fibers are created.
-  // mode: TypeOfMode,
+  mode: TypeOfMode,
 
   // // Effect
-  // flags: Flags,
-  // subtreeFlags: Flags,
-  // deletions: Array<Fiber> | null,
+  flags: Flags,
+  subtreeFlags: Flags,
+  deletions: Array<Fiber> | null, // 要删除的child列表
 
   // // Singly linked list fast path to the next fiber with side-effects.
   // nextEffect: Fiber | null,
@@ -139,19 +256,19 @@ export interface Fiber {
   // firstEffect: Fiber | null,
   // lastEffect: Fiber | null,
 
-  // lanes: Lanes,
-  // childLanes: Lanes,
+  lanes: Lanes,
+  childLanes: Lanes,
 
   // // This is a pooled version of a Fiber. Every fiber that gets updated will
   // // eventually have a pair. There are cases when we can clean up pairs to save
   // // memory if we need to.
-  // alternate: Fiber | null,
+  alternate: Fiber | null,
 
   // // Time spent rendering this Fiber and its descendants for the current update.
   // // This tells us how well the tree makes use of sCU for memoization.
   // // It is reset to 0 each time we render and only updated when we don't bailout.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // actualDuration?: number,
+  actualDuration?: number,
 
   // // If the Fiber is currently active in the "render" phase,
   // // This marks the time at which the work began.
@@ -161,12 +278,12 @@ export interface Fiber {
   // // Duration of the most recent render time for this Fiber.
   // // This value is not updated when we bailout for memoization purposes.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // selfBaseDuration?: number,
+  selfBaseDuration?: number,
 
   // // Sum of base times for all descendants of this Fiber.
   // // This value bubbles up during the "complete" phase.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // treeBaseDuration?: number,
+  treeBaseDuration?: number,
 
   // // Conceptual aliases
   // // workInProgress : Fiber ->  alternate The alternate used for reuse happens
@@ -183,27 +300,27 @@ export interface Fiber {
 };
 export interface BaseFiberRootProperties {
   // // The type of root (legacy, batched, concurrent, etc.)
-  // tag: RootTag,
+  tag: RootTag,
 
   // // Any additional information from the host associated with this root.
-  // containerInfo: any,
+  containerInfo: any,
   // // Used only by persistent updates.
   // pendingChildren: any,
   // // The currently active root fiber. This is the mutable root of the tree.
-  current: Fiber,
+  current: Fiber|null,
 
   // pingCache: WeakMap<Wakeable, Set<mixed>> | Map<Wakeable, Set<mixed>> | null,
 
   // // A finished work-in-progress HostRoot that's ready to be committed.
-  // finishedWork: Fiber | null,
+  finishedWork: Fiber | null,
   // // Timeout handle returned by setTimeout. Used to cancel a pending timeout, if
   // // it's superseded by a new one.
   // timeoutHandle: TimeoutHandle | NoTimeout,
   // // Top context object, used by renderSubtreeIntoContainer
-  // context: Object | null,
-  // pendingContext: Object | null,
+  context: Object | null,
+  pendingContext: Object | null,
   // // Determines if we should attempt to hydrate on the initial mount
-  // +hydrate: boolean,
+  hydrate: boolean,
 
   // // Used by useMutableSource hook to avoid tearing during hydration.
   // mutableSourceEagerHydrationData?: Array<
@@ -214,24 +331,113 @@ export interface BaseFiberRootProperties {
   // // task that the root will work on.
   // callbackNode: *,
   // callbackPriority: LanePriority,
-  // eventTimes: LaneMap<number>,
+  eventTimes: LaneMap<number>,
   // expirationTimes: LaneMap<number>,
 
-  // pendingLanes: Lanes,
-  // suspendedLanes: Lanes,
-  // pingedLanes: Lanes,
-  // expiredLanes: Lanes,
-  // mutableReadLanes: Lanes,
+  pendingLanes: Lanes,
+  suspendedLanes: Lanes,
+  pingedLanes: Lanes,
+  expiredLanes: Lanes,
+  mutableReadLanes: Lanes,
 
-  // finishedLanes: Lanes,
+  finishedLanes: Lanes,
 
   // entangledLanes: Lanes,
   // entanglements: LaneMap<Lanes>,
 
-  // pooledCache: Cache | null,
+  pooledCache: Cache | null,
   // pooledCacheLanes: Lanes,
 };
 
 export interface FiberRoot extends BaseFiberRootProperties {
   
 };
+
+
+
+export type RootOptions = {
+  hydrate?: boolean,
+  hydrationOptions?: {
+    onHydrated?: (suspenseNode: Comment) => void,
+    onDeleted?: (suspenseNode: Comment) => void,
+    mutableSources?: any,
+  },
+  unstable_strictModeLevel?: number,
+};
+// flow中的mixed相当于any @see https://flow.org/en/docs/types/mixed/
+export type mixed = any
+
+
+export type Update<State> = {
+  // TODO: Temporary field. Will remove this by storing a map of
+  // transition -> event time on the root.
+  eventTime: number,
+  lane: Lane,
+
+  tag: 0 | 1 | 2 | 3,
+  payload: any,
+  callback: (() => mixed) | null,
+
+  next: Update<State> | null,
+};
+export type SharedQueue<State> = {
+  pending: Update<State> | null,
+  interleaved: Update<State> | null,
+  lanes: Lanes,
+};
+
+export type UpdateQueue<State> = {
+  baseState: State,
+  firstBaseUpdate: Update<State> | null,
+  lastBaseUpdate: Update<State> | null,
+  shared: SharedQueue<State>,
+  effects: Array<Update<State>> | null,
+};
+
+
+export type Props = {
+  autoFocus?: boolean,
+  children?: mixed,
+  disabled?: boolean,
+  hidden?: boolean,
+  suppressHydrationWarning?: boolean,
+  dangerouslySetInnerHTML?: mixed,
+  style?: {display?: string, [key: string]: any},
+  bottom?: null | number,
+  left?: null | number,
+  right?: null | number,
+  top?: null | number,
+  [key: string]: any
+};
+
+
+
+
+export const ELEMENT_NODE = 1;
+export const TEXT_NODE = 3;
+export const COMMENT_NODE = 8;
+export const DOCUMENT_NODE = 9;
+export const DOCUMENT_FRAGMENT_NODE = 11;
+export type TextInstance = Text;
+export type SuspenseInstance = Comment
+
+export type ReactScopeInstance = any
+
+export type HostContext = string
+
+export type PropertyType = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export const RESERVED = 0;
+
+export type PropertyInfo = {
+  acceptsBooleans: boolean,
+  attributeName: string,
+  attributeNamespace: string | null,
+  mustUseProperty: boolean,
+  propertyName: string,
+  type: PropertyType,
+  sanitizeURL: boolean,
+  removeEmptyString: boolean,
+};
+
+
+export type StackCursor<T> = {current: T};
