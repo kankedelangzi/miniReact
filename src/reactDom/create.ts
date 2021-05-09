@@ -2,10 +2,15 @@ import { RootOptions, RootType, Container, HostText,REACT_ELEMENT_TYPE,IReactEle
   LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,ProfileMode,
   ClassComponent,
   Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,IndeterminateComponent,
-  HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap}  from '../type/index'
+  HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap, Interaction, LanePriority}  from '../type/index'
 import { markContainerAsRoot  } from './tools'
 import { initializeUpdateQueue } from './update'
-import { NoLanes, createLaneMap } from './lane'
+import { NoLanes, createLaneMap, NoLanePriority } from './lane'
+import { createWorkInProgress } from '../reconcile/commit';
+import { enableProfilerTimer, enableSchedulerTracing } from '../type/constant';
+import { unstable_getThreadID } from "../scheduler";
+import { NoTimestamp } from './workInprogress';
+
 export function createLegacyRoot(
   container: Container,
   options?: RootOptions,
@@ -26,6 +31,7 @@ class ReactDOMBlockingRoot {
 }
 
 /**  * 创建并返回一个fiberRoot  
+ *   调用createContainer 产生root  调用markContainerAsRoot标记root并且返回root节点， 插入所有event
 * @param container DOM容器  
 * @param tag fiberRoot节点的标记(LegacyRoot、BatchedRoot、ConcurrentRoot)  
 * @param options 配置信息，只有在hydrate时才有值，否则为undefined  
@@ -76,12 +82,18 @@ export function createContainer(
 }
 
 interface ICreateFiberRoot {
-  containerInfo: Container,
-  tag: RootTag,
+  containerInfo: Container, // 根dom节点
+  tag: RootTag,  // LegacyRoot
   hydrate: boolean,
   hydrationCallbacks: null | any,
   strictModeLevelOverride: null | number,
 }
+
+/**
+ * 
+ * @param props 
+ * @returns 
+ */
 export function createFiberRoot(props: ICreateFiberRoot): FiberRoot {
   const {  containerInfo, tag, hydrate, strictModeLevelOverride  } = props;
   const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate));
@@ -129,6 +141,8 @@ class FiberRootNode implements FiberRoot {
   eventTimes: LaneMap<number>;
   finishedWork: Fiber | null;
   finishedLanes: number;
+  entangledLanes: number;
+  entanglements: LaneMap<number>;
   constructor(containerInfo: Container, tag: RootTag, hydrate: boolean) {
     this.current = null;
     this.tag = tag;
@@ -145,15 +159,36 @@ class FiberRootNode implements FiberRoot {
     this.mutableReadLanes = NoLanes;
     this.finishedLanes = NoLanes;
   
-    // this.entangledLanes = NoLanes;
-    // this.entanglements = createLaneMap(NoLanes);
+    this.entangledLanes = NoLanes;
+    this.entanglements = createLaneMap(NoLanes);
     this.eventTimes = createLaneMap(NoLanes);
     this.context = null;
     this.pendingContext = null;
     this.pooledCache = null;
     this.hydrate = hydrate;
+    if (enableSchedulerTracing) {
+
+      this.interactionThreadID = unstable_getThreadID();
+      this.memoizedInteractions = new Set();
+      this.pendingInteractionMap = new Map();
+    } else { // todo
+      this.interactionThreadID = 0;
+      this.memoizedInteractions = new Set();
+      this.pendingInteractionMap = new Map();
+    }
+    this.eventTimes = createLaneMap(NoLanes);
+    this.expirationTimes = createLaneMap(NoTimestamp);
+    this.callbackPriority = NoLanePriority;
 
   }
+  callbackNode: any;
+  callbackPriority: LanePriority;
+  expirationTimes: LaneMap<number>;
+  interactionThreadID: number;
+  memoizedInteractions: Set<Interaction>;
+  pendingInteractionMap: Map<number, Set<Interaction>>;
+  timeoutHandle: any;
+  
  
   
  
@@ -187,7 +222,10 @@ export function createHostRootFiber(
   } else {
     mode = NoMode;
   }
-  mode |= ProfileMode;
+  if( enableProfilerTimer){
+    mode |= ProfileMode;
+  }
+  
   return createFiber(HostRoot, null, null, mode);
 }
 
@@ -229,6 +267,10 @@ class FiberNode implements Fiber {
     this.key = null;
     this.subtreeFlags = 0
     this.pendingProps = pendingProps
+    this.dependencies = null;
+    this.memoizedProps = null;
+    this.updateQueue = null;
+    this.memoizedState = null;
     this.dependencies = null;
   }
   subtreeFlags: number;
@@ -373,4 +415,29 @@ export function createChild(
   }
 
   return null;
+}
+
+
+export function cloneChildFibers(
+  current: Fiber | null,
+  workInProgress: Fiber,
+): void {
+
+  if (workInProgress.child === null) {
+    return;
+  }
+  let currentChild = workInProgress.child;
+  let newChild = createWorkInProgress(currentChild, currentChild.pendingProps);
+  workInProgress.child = newChild;
+
+  newChild.return = workInProgress;
+  while (currentChild.sibling !== null) {
+    currentChild = currentChild.sibling;
+    newChild = newChild.sibling = createWorkInProgress(
+      currentChild,
+      currentChild.pendingProps,
+    );
+    newChild.return = workInProgress;
+  }
+  newChild.sibling = null;
 }

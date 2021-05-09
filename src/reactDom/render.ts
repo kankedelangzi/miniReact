@@ -1,49 +1,12 @@
-import { ReactNodeList, RootType, Container, FiberRoot}  from '../type/index'
-import { getPublicRootInstance, requestEventTime, getContextForSubtree} from './tools'
+import { ReactNodeList, Container, FiberRoot}  from '../type/index'
 import { createLegacyRoot } from './create'
-import { requestUpdateLane} from './lane'
+import { entangleTransitions, requestUpdateLane} from './lane'
 import { createUpdate, enqueueUpdate} from './update'
 import { scheduleUpdateOnFiber } from '../reconcile'
-interface IlegacyRenderSubtreeIntoContainerProps {
-  parentComponent: any, // 父组件
-  children: ReactNodeList, // 就是babel翻译后的createElement返回的ReactElement节点
-  container: Container,
-  forceHydrate: boolean, // 是否融合，即服务端渲染
-  callback?: Function,
-}
-export function legacyRenderSubtreeIntoContainer(props: IlegacyRenderSubtreeIntoContainerProps) {
+import { Cxt, BatchedContext, LegacyUnbatchedContext, getContextForSubtree} from './context'
+import { requestEventTime, resetRenderTimer } from "./workInprogress";
+import { flushSyncCallbackQueue } from './scheduler'
 
-  const { container, forceHydrate, callback, children, parentComponent } = props
-  // 判断是第一次渲染还是update
-  let root: RootType = (container._reactRootContainer);
-  let fiberRoot: FiberRoot;
-  
-  // 首次挂载，进入当前流程控制中，container._reactRootContainer指向一个ReactSyncRoot实例
-  if(!root) {
-    // Initial mount
-    root = container._reactRootContainer = legacyCreateRootFromDOMContainer(
-      container,
-      forceHydrate,
-    );
-    console.log('container', container, 'root',root, children);
-    fiberRoot = root._internalRoot;
-    // Initial mount should not be batched.
-    // 将执行上下文(executionContext)切换成 LegacyUnbatchedContext (非批量上下文)；
-    // 调用 updateContainer 执行更新操作；
-    // 将执行上下文(executionContext)恢复到之前的状态；
-    // 如果之前的执行上下文是 NoContext，则调用 flushSyncCallbackQueue 刷新同步回调队列。
-   
-    unbatchedUpdates(() => {
-      updateContainer(children, fiberRoot, parentComponent, callback);
-    });
-
-  } else {
-    fiberRoot = root._internalRoot;
-     // Update
-     updateContainer(children, fiberRoot, parentComponent, callback);
-  }
-  return getPublicRootInstance(fiberRoot);
-}
 
 
 // 注： 此函数的作用是根据是否强制融合（服务端渲染），不融合的情况下清除掉 container的子节点
@@ -62,7 +25,7 @@ export function legacyCreateRootFromDOMContainer( container: Container,forceHydr
       }
     }
 
-
+    // 返回创建的根节点
     return createLegacyRoot(
       container,
       shouldHydrate
@@ -73,13 +36,25 @@ export function legacyCreateRootFromDOMContainer( container: Container,forceHydr
     );
 
 }
-
+// 存储当前的context 然后赋值新的context 执行回调函数， 执行结束后，执行微任务  flushSyncCallbackQueue
 export function unbatchedUpdates<A, R>(callback: (a?: A) => R, a?: A):R {
-  //
+  const prevExecutionContext = Cxt.executionContext;
+  Cxt.executionContext &= ~BatchedContext;
+  // 这里给Cxt.executionContext 添加LegacyUnbatchedContext 
+  // 在后边的schedulerUpdateOnFiber中作为关键条件被使用
+  Cxt.executionContext |= LegacyUnbatchedContext;
+ 
+  
+  console.log('这里更新了executionContext这个全局变量&= ~BatchedContext    |= LegacyUnbatchedContext')
   try {
     return callback(a);
   } finally {
     // todo
+    console.log('unbatchedUpdates 的finally')
+    Cxt.executionContext = prevExecutionContext;
+    resetRenderTimer();
+    flushSyncCallbackQueue();
+    
   }
 }
 
@@ -90,6 +65,7 @@ export function updateContainer(
   container: FiberRoot,
   parentComponent?: any,
   callback?: Function) {
+
   if(!container) {
     return ;
   }
@@ -99,6 +75,7 @@ export function updateContainer(
     return ;
   }
   const eventTime = requestEventTime();
+  
   const lane = requestUpdateLane(current)
    // 获取当前节点和子节点的上下文  // 第一次执行到这传入的是null返回的是{}
   const context = getContextForSubtree(parentComponent);// {}
@@ -108,7 +85,7 @@ export function updateContainer(
   } else {
     container.pendingContext = context;
   }
-  console.log(container, 'container')
+
 
 
   /**
@@ -125,15 +102,15 @@ export function updateContainer(
     }
    */
   const update = createUpdate(eventTime, lane);
-  // todo 目前并没有弄清楚这个在哪使用的，后续跟进
-  update.payload = {element};
   
+  update.payload = {element};
+  console.log('创建update并且把element放进payload', {...update})
   enqueueUpdate(current, update, lane);
- console.log('current', current)
+
   const root = scheduleUpdateOnFiber(current, lane, eventTime);
-  // if (root !== null) {
-  //   entangleTransitions(root, current, lane);
-  // }
+  if (root !== null) {
+    entangleTransitions(root, current, lane);
+  }
 
   return lane;
 }

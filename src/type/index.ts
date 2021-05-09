@@ -1,6 +1,23 @@
 
 
 export let REACT_ELEMENT_TYPE = 0xeac7;
+export let REACT_PORTAL_TYPE = 0xeaca;
+export let REACT_FRAGMENT_TYPE = 0xeacb;
+export let REACT_STRICT_MODE_TYPE = 0xeacc;
+export let REACT_PROFILER_TYPE = 0xead2;
+export let REACT_PROVIDER_TYPE = 0xeacd;
+export let REACT_CONTEXT_TYPE = 0xeace;
+export let REACT_FORWARD_REF_TYPE = 0xead0;
+export let REACT_SUSPENSE_TYPE = 0xead1;
+export let REACT_SUSPENSE_LIST_TYPE = 0xead8;
+export let REACT_MEMO_TYPE = 0xead3;
+export let REACT_LAZY_TYPE = 0xead4;
+export let REACT_SCOPE_TYPE = 0xead7;
+export let REACT_OPAQUE_ID_TYPE = 0xeae0;
+export let REACT_DEBUG_TRACING_MODE_TYPE = 0xeae1;
+export let REACT_OFFSCREEN_TYPE = 0xeae2;
+export let REACT_LEGACY_HIDDEN_TYPE = 0xeae3;
+export let REACT_CACHE_TYPE = 0xeae4;
 
 export type ReactText = string | number;
 export const HostComponent = 5;
@@ -12,12 +29,51 @@ export type ReactNodeList = ReactEmpty | ReactNode;
 export const HostRoot = 3;
 export const HostText = 6;
 export const HostPortal = 4; 
+export const Fragment = 7;
+export const Mode = 8;
+export const ContextConsumer = 9;
+export const ContextProvider = 10;
+export const ForwardRef = 11;
+export const Profiler = 12;
+export const SuspenseComponent = 13;
+export const MemoComponent = 14;
+export const SimpleMemoComponent = 15;
+export const LazyComponent = 16;
+export const IncompleteClassComponent = 17;
 export const DehydratedFragment = 18;
+export const SuspenseListComponent = 19;
+export const ScopeComponent = 21;
+export const OffscreenComponent = 22;
+export const LegacyHiddenComponent = 23;
+export const CacheComponent = 24;
+
+
+
 export type RootTag = 0 | 1 | 2;
 export const LegacyRoot = 0;
 export const BlockingRoot = 1;
 export const ClassComponent = 1;
 export const ConcurrentRoot = 2;
+export type ExecutionContext = number;
+export type LanePriority =
+  | 0
+  | 1
+  | 2
+  | 3
+  | 4
+  | 5
+  | 6
+  | 7
+  | 8
+  | 9
+  | 10
+  | 11
+  | 12
+  | 13
+  | 14
+  | 15
+  | 16
+  | 17;
 export type WorkTag =| 0| 1| 2| 3| 4| 5| 6| 7 | 8| 9| 10| 11
   | 12
   | 13
@@ -298,6 +354,9 @@ export interface Fiber {
   // // Used to verify that the order of hooks does not change between renders.
   // _debugHookTypes?: Array<HookType> | null,
 };
+
+export type TimeoutHandle = mixed; // eslint-disable-line no-undef
+export type NoTimeout = mixed; // eslint-disable-line no-undef
 export interface BaseFiberRootProperties {
   // // The type of root (legacy, batched, concurrent, etc.)
   tag: RootTag,
@@ -315,7 +374,7 @@ export interface BaseFiberRootProperties {
   finishedWork: Fiber | null,
   // // Timeout handle returned by setTimeout. Used to cancel a pending timeout, if
   // // it's superseded by a new one.
-  // timeoutHandle: TimeoutHandle | NoTimeout,
+  timeoutHandle: TimeoutHandle | NoTimeout,
   // // Top context object, used by renderSubtreeIntoContainer
   context: Object | null,
   pendingContext: Object | null,
@@ -329,28 +388,39 @@ export interface BaseFiberRootProperties {
 
   // // Node returned by Scheduler.scheduleCallback. Represents the next rendering
   // // task that the root will work on.
-  // callbackNode: *,
-  // callbackPriority: LanePriority,
+  callbackNode: any,
+  callbackPriority: LanePriority,
   eventTimes: LaneMap<number>,
-  // expirationTimes: LaneMap<number>,
+  expirationTimes: LaneMap<number>,
 
   pendingLanes: Lanes,
   suspendedLanes: Lanes,
+  // 包含了当前fiber树中所有待处理的update的lane。
   pingedLanes: Lanes,
   expiredLanes: Lanes,
   mutableReadLanes: Lanes,
 
   finishedLanes: Lanes,
 
-  // entangledLanes: Lanes,
-  // entanglements: LaneMap<Lanes>,
+  entangledLanes: Lanes,
+  entanglements: LaneMap<Lanes>,
 
   pooledCache: Cache | null,
   // pooledCacheLanes: Lanes,
 };
 
 export interface FiberRoot extends BaseFiberRootProperties {
-  
+  interactionThreadID: number,
+  memoizedInteractions: Set<Interaction>,
+  pendingInteractionMap: Map<Lane | Lanes, Set<Interaction>>,
+};
+
+
+export type Interaction = {
+  __count: number,
+  id: number,
+  name: string,
+  timestamp: number,
 };
 
 
@@ -441,3 +511,63 @@ export type PropertyInfo = {
 
 
 export type StackCursor<T> = {current: T};
+
+export type BasicStateAction<S> = ((s: S) => S) | S;
+
+export type Dispatch<A> = (a: A) => void;
+export type Dispatcher = {
+  // getCacheForType?: <T>(resourceType: () => T) => T,
+  // readContext<T>(
+  //   context: ReactContext<T>,
+  //   observedBits: void | number | boolean,
+  // ): T,
+  useState<S>(initialState: (() => S) | S): [S, Dispatch<BasicStateAction<S>>],
+  // useReducer<S, I, A>(
+  //   reducer: (S, A) => S,
+  //   initialArg: I,
+  //   init?: (I) => S,
+  // ): [S, Dispatch<A>],
+  // useContext<T>(
+  //   context: ReactContext<T>,
+  //   observedBits: void | number | boolean,
+  // ): T,
+  // useRef<T>(initialValue: T): {current: T},
+  // useEffect(
+  //   create: () => (() => void) | void,
+  //   deps: Array<mixed> | void | null,
+  // ): void,
+  // useLayoutEffect(
+  //   create: () => (() => void) | void,
+  //   deps: Array<mixed> | void | null,
+  // ): void,
+  // useCallback<T>(callback: T, deps: Array<mixed> | void | null): T,
+  // useMemo<T>(nextCreate: () => T, deps: Array<mixed> | void | null): T,
+  // useImperativeHandle<T>(
+  //   ref: {current: T | null} | ((inst: T | null) => mixed) | null | void,
+  //   create: () => T,
+  //   deps: Array<mixed> | void | null,
+  // ): void,
+  // useDebugValue<T>(value: T, formatterFn: ?(value: T) => mixed): void,
+  // useDeferredValue<T>(value: T): T,
+  // useTransition(): [(() => void) => void, boolean],
+  // useMutableSource<Source, Snapshot>(
+  //   source: MutableSource<Source>,
+  //   getSnapshot: MutableSourceGetSnapshotFn<Source, Snapshot>,
+  //   subscribe: MutableSourceSubscribeFn<Source, Snapshot>,
+  // ): Snapshot,
+  // useOpaqueIdentifier(): any,
+  // useCacheRefresh?: () => <T>(?() => T, ?T) => void,
+
+  // unstable_isNewReconciler?: boolean,
+};
+
+
+
+export type SchedulerCallback = (isSync: boolean) => SchedulerCallback | null;
+export type SchedulerCallbackOptions = {timeout?: number};
+
+
+
+export const LayoutMask = Update | Callback | Ref;
+
+export const PassiveMask = Passive | ChildDeletion;

@@ -12,6 +12,7 @@ const {
   unstable_NormalPriority: Scheduler_NormalPriority,
   unstable_LowPriority: Scheduler_LowPriority,
   unstable_IdlePriority: Scheduler_IdlePriority,
+  unstable_now: Scheduler_now
 } = Scheduler;
 
 const randomKey = Math.random()
@@ -21,6 +22,11 @@ export function getPublicInstance(instance: Element) {
   return instance;
 }
 
+/**
+ * 
+ * @param container root节点
+ * @returns 渲染之后的整个dom树
+ */
 export function getPublicRootInstance(container: FiberRoot) {
   if(!container) {
     return;
@@ -59,12 +65,10 @@ export function precacheFiberNode(
 ): void {
   node[internalInstanceKey] = hostInst;
 }
-// const initialTimeMs: number = Scheduler_now();
-// export const now =
-//   initialTimeMs < 10000 ? Scheduler_now : () => Scheduler_now() - initialTimeMs;
-export function requestEventTime() {
-  return Date.now(); // todo
-}
+const initialTimeMs: number = Scheduler_now();
+export const now =
+  initialTimeMs < 10000 ? Scheduler_now : () => Scheduler_now() - initialTimeMs;
+
 
 
 // Except for NoPriority, these correspond to Scheduler priorities. We use
@@ -77,6 +81,7 @@ export const LowPriority: ReactPriorityLevel = 96;
 export const IdlePriority: ReactPriorityLevel = 95;
 // NoPriority is the absence of priority. Also React-only.
 export const NoPriority: ReactPriorityLevel = 90;
+
 
 // 这个函数将scheduler优先级转化为react优先级
 export function getCurrentPriorityLevel(): ReactPriorityLevel {
@@ -96,26 +101,6 @@ export function getCurrentPriorityLevel(): ReactPriorityLevel {
   }
 }
 
-export const emptyContextObject = {};
-export function getContextForSubtree(
-  parentComponent: any,
-): Object {
-  if (!parentComponent) {
-    return emptyContextObject;
-  }
-  return emptyContextObject;
-  // const fiber = getInstance(parentComponent);
-  // const parentContext = findCurrentUnmaskedContext(fiber);
-
-  // if (fiber.tag === ClassComponent) {
-  //   const Component = fiber.type;
-  //   if (isLegacyContextProvider(Component)) {
-  //     return processChildContext(fiber, Component, parentContext);
-  //   }
-  // }
-
-  // return parentContext;
-}
 
 //markRootUpdated 将updateLane更新到pendingLanes， 并将suspendedLanes ，
 //pingedLanes 首先与小于的updateLane(updateLane -1)区并，再进行更行, 并更新updateLane 对应的eventTime
@@ -125,19 +110,8 @@ export function markRootUpdated(
   eventTime: number,
 ) {
   root.pendingLanes |= updateLane;
+  console.log('root pendingLanes被赋值', {...root})
 
-  // If there are any suspended transitions, it's possible this new update
-  // could unblock them. Clear the suspended lanes so that we can try rendering
-  // them again.
-  //
-  // TODO: We really only need to unsuspend only lanes that are in the
-  // `subtreeLanes` of the updated fiber, or the update lanes of the return
-  // path. This would exclude suspended updates in an unrelated sibling tree,
-  // since there's no way for this update to unblock it.
-  //
-  // We don't do this if the incoming update is idle, because we never process
-  // idle updates until after all the regular updates have finished; there's no
-  // way it could unblock a transition.
   if (updateLane !== IdleLane) {
     root.suspendedLanes = NoLanes;
     root.pingedLanes = NoLanes;
@@ -150,7 +124,15 @@ export function markRootUpdated(
   eventTimes[index] = eventTime;
 }
 
+/**
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/clz32
+ * 按照二进制 计算第一个1出现的位置前边有多少个0 
+ * 比如1 -> 0000 0000 0000 0000 0000 0000 0000 0001  clz32(1) = 31  clz32(2) = 30 clz32(3) 
+*/
 const clz32 = Math.clz32 ? Math.clz32 : clz32Fallback;
+/**
+ * 
+*/
 function pickArbitraryLaneIndex(lanes: Lanes) {
   return 31 - clz32(lanes);
 }

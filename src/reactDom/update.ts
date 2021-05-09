@@ -1,5 +1,6 @@
 import { Fiber, UpdateQueue, Update, Lane, Lanes, FiberRoot, BlockingMode, NoMode} from '../type'
-import { NoLanes, executionContext, RenderContext, NoContext } from './lane'
+import { NoLanes,  } from './lane'
+import { Cxt, RenderContext, NoContext } from "./context";
 
 export const UpdateState = 0;
 export const ReplaceState = 1;
@@ -105,7 +106,9 @@ export function isInterleavedUpdate(fiber: Fiber, lane: Lane) {
     // accompanied by a warning but we haven't fully deprecated it yet. We can
     // remove once the deferRenderPhaseUpdateToNextBatch flag is enabled.
     (deferRenderPhaseUpdateToNextBatch ||
-      (executionContext & RenderContext) === NoContext)
+      (Cxt.executionContext & RenderContext) === NoContext)
   );
 }
+
+
 
