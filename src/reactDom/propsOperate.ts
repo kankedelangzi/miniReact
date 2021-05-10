@@ -121,16 +121,16 @@ export function setInitialProperties(
       break;
   }
 }
-const HTML = '__html';
-const DANGEROUSLY_SET_INNER_HTML = 'dangerouslySetInnerHTML';
-const SUPPRESS_CONTENT_EDITABLE_WARNING = 'suppressContentEditableWarning';
-const SUPPRESS_HYDRATION_WARNING = 'suppressHydrationWarning';
+export const HTML = '__html';
+export const DANGEROUSLY_SET_INNER_HTML = 'dangerouslySetInnerHTML';
+export const SUPPRESS_CONTENT_EDITABLE_WARNING = 'suppressContentEditableWarning';
+export const SUPPRESS_HYDRATION_WARNING = 'suppressHydrationWarning';
 /**
  * Mapping from registration name to event name
  */
  export const registrationNameDependencies = {};
-const AUTOFOCUS = 'autoFocus';
-const CHILDREN = 'children';
+export const AUTOFOCUS = 'autoFocus';
+export const CHILDREN = 'children';
 export const BOOLEAN = 3;
 export const OVERLOADED_BOOLEAN = 4;
 const omittedCloseTags = {
@@ -241,7 +241,7 @@ function setInitialDOMProperties(
     }
     const nextProp = nextProps[propKey];
     if (propKey === STYLE) {
-     
+      // 设置行内样式
       // Relies on `updateStylesByID` not mutating `styleUpdates`.
       setValueForStyles(domElement, nextProp);
     } else if (propKey === DANGEROUSLY_SET_INNER_HTML) {
@@ -273,12 +273,13 @@ function setInitialDOMProperties(
       // adding a special case here, but then it wouldn't be emitted
       // on server rendering (but we *do* want to emit it in SSR).
     } else if (registrationNameDependencies.hasOwnProperty(propKey)) {
-      // if (nextProp != null) {
+      // 绑定事件
+      if (nextProp != null) {
      
-      //   if (propKey === 'onScroll') {
-      //     listenToNonDelegatedEvent('scroll', domElement);
-      //   }
-      // }
+        if (propKey === 'onScroll') {
+          // listenToNonDelegatedEvent('scroll', domElement);
+        }
+      }
     } else if (nextProp != null) {
       setValueForProperty(domElement, propKey, nextProp, isCustomComponentTag);
     }
@@ -286,7 +287,9 @@ function setInitialDOMProperties(
 }
 
 export function setValueForStyles(node: Element, styles: any) {
+  // debugger
   const style = (node as any).style; // TODO
+  console.log('设置属性',style)
   for (let styleName in styles) {
     if (!styles.hasOwnProperty(styleName)) {
       continue;

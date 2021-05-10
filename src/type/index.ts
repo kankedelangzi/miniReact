@@ -329,7 +329,7 @@ export interface Fiber {
   // // If the Fiber is currently active in the "render" phase,
   // // This marks the time at which the work began.
   // // This field is only set when the enableProfilerTimer flag is enabled.
-  // actualStartTime?: number,
+  actualStartTime?: number,
 
   // // Duration of the most recent render time for this Fiber.
   // // This value is not updated when we bailout for memoization purposes.
@@ -571,3 +571,5 @@ export type SchedulerCallbackOptions = {timeout?: number};
 export const LayoutMask = Update | Callback | Ref;
 
 export const PassiveMask = Passive | ChildDeletion;
+
+export type UpdatePayload = Array<mixed>;

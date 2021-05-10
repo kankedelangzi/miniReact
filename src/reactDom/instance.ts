@@ -90,7 +90,8 @@ export function createElement(
   if (namespaceURI === HTML_NAMESPACE) {
     namespaceURI = getIntrinsicNamespace(type);
   }
-  if (namespaceURI === HTML_NAMESPACE) {
+  
+  // if (namespaceURI === HTML_NAMESPACE) {
     if (type === 'script') {
       const div = ownerDocument.createElement('div');
       div.innerHTML = '<script><' + '/script>'; 
@@ -114,9 +115,10 @@ export function createElement(
         }
       }
     }
-  } else {
-    domElement = ownerDocument.createElementNS(namespaceURI, type);
-  }
+  // } else {
+  //   // domElement = ownerDocument.createElementNS(namespaceURI, type);
+  //   domElement = ownerDocument.createElement(type);
+  // }
 
   return domElement;
 }

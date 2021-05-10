@@ -245,6 +245,10 @@ class FiberNode implements Fiber {
   memoizedProps: any;
   flags: number;
   dependencies: any;
+  actualDuration: number;
+  actualStartTime: number;
+  selfBaseDuration: number;
+  treeBaseDuration: number;
   constructor (
     tag: WorkTag,
     pendingProps: any,
@@ -272,6 +276,18 @@ class FiberNode implements Fiber {
     this.updateQueue = null;
     this.memoizedState = null;
     this.dependencies = null;
+    this.actualDuration = Number.NaN;
+    this.actualStartTime = Number.NaN;
+    this.selfBaseDuration = Number.NaN;
+    this.treeBaseDuration = Number.NaN;
+
+    if (enableProfilerTimer) {
+    this.actualDuration = 0;
+    this.actualStartTime = -1;
+    this.selfBaseDuration = 0;
+    this.treeBaseDuration = 0;
+    }
+    
   }
   subtreeFlags: number;
   key: string | null;

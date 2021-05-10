@@ -2,13 +2,13 @@ import { FiberRoot, ReactPriorityLevel,Fiber,
   Placement,Update , Hydrating, PlacementAndUpdate,
   HostComponent, HostRoot,HostPortal,
   HostText,DehydratedFragment,Instance,ProfileMode,
-  Profiler,
+  Profiler,UpdatePayload,
   HydratingAndUpdate, FunctionComponent,Callback,
   Container,LayoutMask,ForwardRef,SimpleMemoComponent,
-  BeforeMutationMask, NoFlags, MutationMask, Lanes, ClassComponent, UpdateQueue, Props, PassiveMask } from '../type/index'
-import { getCurrentPriorityLevel } from './tools'
+  BeforeMutationMask, NoFlags, MutationMask, Lanes, ClassComponent, UpdateQueue, Props, PassiveMask, SuspenseComponent, Snapshot, IncompleteClassComponent, ContentReset, MemoComponent } from '../type/index'
+
 import { NoLanes}  from '../reactDom/lane'
-import { getPublicInstance, ImmediatePriority as  ImmediateSchedulerPriority, prepareForCommit} from '../reactDom/tools'
+import { getCurrentPriorityLevel, getPublicInstance, ImmediatePriority as  ImmediateSchedulerPriority, prepareForCommit} from '../reactDom/tools'
 import { ImmediatePriority } from '../scheduler/propity'
 import Scheduler from '../scheduler/index'
 import { startLayoutEffectTimer } from "./time";
@@ -16,13 +16,15 @@ import { FunctionComponentUpdateQueue,
   Layout as HookLayout,
   HasEffect as HookHasEffect,
   Passive as HookPassive, enableScopeAPI } from "../type/constant";
-import { insertInContainerBefore, appendChildToContainer, insertBefore, appendChild } from '../reactDom/domOperation'
+import { insertInContainerBefore, appendChildToContainer, insertBefore, appendChild, resetTextContent } from '../reactDom/domOperation'
 import { enableProfilerCommitHooks, enableProfilerTimer } from '../type/constant'
 import { cEffect, flushPassiveEffects, scheduleCallback,NormalPriority } from './scheduler'
+import { clearContainer } from '../reactDom/config'
+import { commitUpdate } from '../reactDom/property'
 const { unstable_runWithPriority } = Scheduler
 const Scheduler_runWithPriority = unstable_runWithPriority
 let nextEffect: Fiber | null = null;
-
+export const supportsMutation = true;
 //获取当前优先级， 调用runWithPriority ， 传入的函数的参数第一个为最高的优先级,
 // 第二个参数commitRootImpl 为执行的函数
 export function commitRoot(root: FiberRoot) {
@@ -167,13 +169,13 @@ function commitBeforeMutationEffects_begin() {
 
     // TODO: Should wrap this in flags check, too, as optimization
     const deletions = fiber.deletions;
-    // if (deletions !== null) {
-    //   for (let i = 0; i < deletions.length; i++) {
-    //     const deletion = deletions[i];
-    //     console.log('commit commitBeforeMutationEffectsDeletion')
-    //     // commitBeforeMutationEffectsDeletion(deletion);
-    //   }
-    // }
+    if (deletions !== null) {
+      for (let i = 0; i < deletions.length; i++) {
+        const deletion = deletions[i];
+        console.log('commit commitBeforeMutationEffectsDeletion')
+        commitBeforeMutationEffectsDeletion(deletion);
+      }
+    }
 
     const child = fiber.child;
     // 如果当前节点没有子节点进入else 如果有子节点进入if
@@ -218,10 +220,72 @@ function commitBeforeMutationEffects_complete() {
   }
 }
 
+/*
+  到目前为止当前这个函数处理的事情非常少一个事HostRoot 清空container中的text信息
+  一个事classComponent这种类型下调用一下getSnapshotBeforeUpdate这个生命周期
+
+*/
 function commitBeforeMutationEffectsOnFiber(finishedWork: Fiber) {
   const current = finishedWork.alternate;
   const flags = finishedWork.flags;
+
+  if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
+    // Check to see if the focused element was inside of a hidden (Suspense) subtree.
+    // TODO: Move this out of the hot path using a dedicated effect tag.
+    if (
+      finishedWork.tag === SuspenseComponent 
+      // isSuspenseBoundaryBeingHidden(current, finishedWork) &&
+      // doesFiberContain(finishedWork, focusedInstanceHandle)
+    ) {
+      // shouldFireAfterActiveInstanceBlur = true;
+      // beforeActiveInstanceBlur(finishedWork);
+    }
+  }
   //
+  if ((flags & Snapshot) !== NoFlags) {
+    switch (finishedWork.tag) {
+      case FunctionComponent:
+      case ForwardRef:
+      case HostComponent:
+      case HostText:
+      case HostPortal:
+      case IncompleteClassComponent:
+      case SimpleMemoComponent: {
+          break;
+      }
+      case HostRoot: {
+        if (supportsMutation) {
+          const root = finishedWork.stateNode;
+          clearContainer(root.containerInfo);
+        }
+        break;
+      }
+      
+      case ClassComponent: {
+        // 在classComponent这种类型下主要是调用getSnapshotBeforeUpdate生命周期
+        if (current !== null) {
+          const prevProps = current.memoizedProps;
+          const prevState = current.memoizedState;
+          const instance = finishedWork.stateNode;
+         
+          const snapshot = instance.getSnapshotBeforeUpdate(
+            finishedWork.elementType === finishedWork.type
+              ? prevProps
+              : resolveDefaultProps(finishedWork.type, prevProps),
+            prevState,
+          );
+          
+          instance.__reactInternalSnapshotBeforeUpdate = snapshot;
+        }
+        break;
+      }
+
+      default: {
+        
+      }
+
+    }
+  }
 }
 
 export function commitMutationEffects(
@@ -324,9 +388,9 @@ function commitMutationEffectsOnFiber(
 }
 
 function commitPlacement(finishedWork: Fiber): void {
-  // if (!supportsMutation) {
-  //   return;
-  // }
+  if (!supportsMutation) {
+    return;
+  }
 
   // Recursively insert all host nodes into the parent.
   const parentFiber = getHostParentFiber(finishedWork);
@@ -354,12 +418,13 @@ function commitPlacement(finishedWork: Fiber): void {
     default:
     
   }
-  // if (parentFiber && (parentFiber.flags & ContentReset)) {
-  //   // Reset the text content of the parent before doing any insertions
-  //   resetTextContent(parent);
-  //   // Clear ContentReset from the effect tag
-  //   parentFiber.flags &= ~ContentReset;
-  // }
+  // 重置text信息，这个看reconcileChild部分
+  if (parentFiber && (parentFiber.flags & ContentReset)) {
+    // Reset the text content of the parent before doing any insertions
+    resetTextContent(parent);
+    // Clear ContentReset from the effect tag
+    parentFiber.flags &= ~ContentReset;
+  }
 
   const before = getHostSibling(finishedWork);
   // We only have the top Fiber that was inserted but we need to recurse down its
@@ -501,6 +566,115 @@ function insertOrAppendPlacementNode(
 function commitWork(current: Fiber | null, finishedWork: Fiber): void {
    //
    console.log('commitWork',current, finishedWork)
+   if (!supportsMutation) {
+    // switch (finishedWork.tag) {
+    //   case FunctionComponent:
+    //   case ForwardRef:
+    //   case MemoComponent:
+    //   case SimpleMemoComponent: {
+    //     // Layout effects are destroyed during the mutation phase so that all
+    //     // destroy functions for all fibers are called before any create functions.
+    //     // This prevents sibling component effects from interfering with each other,
+    //     // e.g. a destroy function in one component should never override a ref set
+    //     // by a create function in another component during the same commit.
+    //     if (
+    //       enableProfilerTimer &&
+    //       enableProfilerCommitHooks &&
+    //       finishedWork.mode & ProfileMode
+    //     ) {
+    //       try {
+    //         startLayoutEffectTimer();
+    //         commitHookEffectListUnmount(
+    //           HookLayout | HookHasEffect,
+    //           finishedWork,
+    //           finishedWork.return,
+    //         );
+    //       } finally {
+    //         recordLayoutEffectDuration(finishedWork);
+    //       }
+    //     } else {
+    //       commitHookEffectListUnmount(
+    //         HookLayout | HookHasEffect,
+    //         finishedWork,
+    //         finishedWork.return,
+    //       );
+    //     }
+    //     return;
+    //   }
+    //   case Profiler: {
+    //     return;
+    //   }
+    //   case SuspenseComponent: {
+    //     commitSuspenseComponent(finishedWork);
+    //     attachSuspenseRetryListeners(finishedWork);
+    //     return;
+    //   }
+    //   case SuspenseListComponent: {
+    //     attachSuspenseRetryListeners(finishedWork);
+    //     return;
+    //   }
+    //   case HostRoot: {
+    //     if (supportsHydration) {
+    //       const root: FiberRoot = finishedWork.stateNode;
+    //       if (root.hydrate) {
+    //         // We've just hydrated. No need to hydrate again.
+    //         root.hydrate = false;
+    //         commitHydratedContainer(root.containerInfo);
+    //       }
+    //     }
+    //     break;
+    //   }
+    //   case OffscreenComponent:
+    //   case LegacyHiddenComponent: {
+    //     return;
+    //   }
+    // }
+
+    // commitContainer(finishedWork);
+    // return;
+  }
+  switch (finishedWork.tag) {
+    case FunctionComponent:
+    case ForwardRef:
+    case MemoComponent:
+    case SimpleMemoComponent: {
+
+      return;
+    }
+    case ClassComponent: {
+      return;
+    }
+    case HostComponent: {
+      const instance: Instance = finishedWork.stateNode;
+      if (instance != null) {
+        // Commit the work prepared earlier.
+        const newProps = finishedWork.memoizedProps;
+        // For hydration we reuse the update path but we treat the oldProps
+        // as the newProps. The updatePayload will contain the real change in
+        // this case.
+        const oldProps = current !== null ? current.memoizedProps : newProps;
+        const type = finishedWork.type;
+        // TODO: Type the updateQueue to be specific to host components.
+        const updatePayload: null | UpdatePayload = (finishedWork.updateQueue as any);
+        finishedWork.updateQueue = null;
+        if (updatePayload !== null) {
+          commitUpdate(
+            instance,
+            updatePayload,
+            type,
+            oldProps,
+            newProps,
+            finishedWork,
+          );
+        }
+      }
+      return
+    }
+    default: {
+      console.log('commitWork一种未实现的tag ',finishedWork.tag)
+    }
+    
+  }
 }
 
 
@@ -883,6 +1057,51 @@ function shouldAutoFocusHostComponent(type: string, props: Props): boolean {
     case 'select':
     case 'textarea':
       return !!props.autoFocus;
+  }
+  return false;
+}
+
+
+
+// 当没有主动传入属性时用defaultProps
+
+export function resolveDefaultProps(Component: any, baseProps: {[key: string]: string}): Object {
+  if (Component && Component.defaultProps) {
+    // Resolve default props. Taken from ReactElement
+    const props = Object.assign({}, baseProps);
+    const defaultProps = Component.defaultProps;
+    for (const propName in defaultProps) {
+      if (props[propName] === undefined) {
+        props[propName] = defaultProps[propName];
+      }
+    }
+    return props;
+  }
+  return baseProps;
+}
+
+
+
+function commitBeforeMutationEffectsDeletion(deletion: Fiber) {
+
+  if (doesFiberContain(deletion, (focusedInstanceHandle as Fiber))) {
+    shouldFireAfterActiveInstanceBlur = true;
+    console.log('beforeActiveInstanceBlur 未实现')
+    // beforeActiveInstanceBlur(deletion);
+  }
+}
+
+export function doesFiberContain(
+  parentFiber: Fiber,
+  childFiber: Fiber,
+): boolean {
+  let node: Fiber|null = childFiber;
+  const parentFiberAlternate = parentFiber.alternate;
+  while (node !== null) {
+    if (node === parentFiber || node === parentFiberAlternate) {
+      return true;
+    }
+    node = node.return;
   }
   return false;
 }

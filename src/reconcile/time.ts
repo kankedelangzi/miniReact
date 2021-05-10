@@ -21,3 +21,51 @@ export function startLayoutEffectTimer(): void {
   }
   layoutEffectStartTime = now();
 }
+
+
+export function getCommitTime(): number {
+  return commitTime;
+}
+
+export function recordCommitTime(): void {
+  if (!enableProfilerTimer) {
+    return;
+  }
+  commitTime = now();
+}
+
+export function startProfilerTimer(fiber: Fiber): void {
+  if (!enableProfilerTimer) {
+    return;
+  }
+
+  profilerStartTime = now();
+
+  if (!fiber.actualStartTime || fiber.actualStartTime < 0) {
+    fiber.actualStartTime = now();
+  }
+}
+
+
+export function stopProfilerTimerIfRunningAndRecordDelta(
+  fiber: Fiber,
+  overrideBaseTime: boolean,
+): void {
+  if (!enableProfilerTimer) {
+    return;
+  }
+
+  if (profilerStartTime >= 0) {
+    const elapsedTime = now() - profilerStartTime;
+    if(fiber.actualDuration) {
+      fiber.actualDuration += elapsedTime;
+    } else {
+      fiber.actualDuration = -1 + elapsedTime;
+    }
+   
+    if (overrideBaseTime) {
+      fiber.selfBaseDuration = elapsedTime;
+    }
+    profilerStartTime = -1;
+  }
+}

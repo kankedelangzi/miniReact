@@ -1,14 +1,32 @@
 import { now } from "./tools";
 import { Cxt, RenderContext, CommitContext, NoContext } from "./context";
-import { FiberRoot } from "../type";
+import { Fiber, FiberRoot, Lanes } from "../type";
 export const NoTimestamp = -1;// TODO
+export const NoLanes: Lanes = /*                        */ 0b0000000000000000000000000000000;
+
+export type RootExitStatus = 0 | 1 | 2 | 3 | 4 | 5;
+export const RootIncomplete = 0;
+export const RootFatalErrored = 1;
+export const RootErrored = 2;
+export const RootSuspended = 3;
+export const RootSuspendedWithDelay = 4;
+export const RootCompleted = 5;
+
+
 interface WorkInProgressConstant {
   workInProgressRootRenderTargetTime: number;
-  workInProgressRoot: FiberRoot | null
+  workInProgressRoot: FiberRoot | null;
+  workInProgress: Fiber|null
+  workInProgressRootRenderLanes: Lanes;
+  workInProgressRootExitStatus: RootExitStatus;
+
 }
 export const WorkIn: WorkInProgressConstant = {
   workInProgressRootRenderTargetTime: Infinity,
-  workInProgressRoot: null
+  workInProgressRoot: null,
+  workInProgress: null,
+  workInProgressRootRenderLanes: NoLanes,
+  workInProgressRootExitStatus: RootIncomplete
 }
 
 const RENDER_TIMEOUT_MS = 500;

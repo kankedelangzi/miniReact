@@ -14,11 +14,11 @@ function Counter() {
     setCount(count+1)
     console.log('updateCount')
   }, 4000)
-  return <div>{count}次</div>
+  return <div style={{background: 'red'}}>{count}次</div>
 }
 const node = <div>
     <p>mini react </p>
-    <span>hello</span>
+    <span style={{background: 'red'}}>hello</span>
     <Counter />
   </div>
 // 

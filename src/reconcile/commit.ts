@@ -4,8 +4,8 @@ import { FiberRoot,HostEffectMask,
   Lane,Interaction,SchedulerCallback,
   HostRoot,HostComponent, ShouldCapture,DidCapture, StackCursor,RootIncomplete,
   SchedulerCallbackOptions,
-  ProfileMode, NoMode, Incomplete, NoFlags } from '../type'
-import {  getNextLanes, mergeLanes,  includesSomeLane, computeThreadID } from '../reactDom/lane'
+  ProfileMode, NoMode, Incomplete, NoFlags, Props, Instance } from '../type'
+import {  getNextLanes, mergeLanes,  includesSomeLane, computeThreadID, ensureRootIsScheduled } from '../reactDom/lane'
 import { createFiber} from '../reactDom/create'
 import { beginWork } from './beginWork'
 import {  commitRoot } from './commitRoot'
@@ -17,9 +17,15 @@ import { ReactCurrentDispatcher } from "../react/hooks";
 import { resetContextDependencies } from "./functionComponent";
 import { enableSchedulerTracing } from '../type/constant'
 import { __subscriberRef } from "../scheduler";
-import {  ImmediatePriority as ImmediateSchedulerPriority} from '../reactDom/tools'
+import {  ImmediatePriority as ImmediateSchedulerPriority, now} from '../reactDom/tools'
 import { Cxt, RenderContext } from '../reactDom/context'
+import { flushPassiveEffects } from './scheduler'
+import { RootCompleted, WorkIn } from '../reactDom/workInprogress'
+import { startProfilerTimer, stopProfilerTimerIfRunningAndRecordDelta } from './time'
+import { diffProperties } from '../reactDom/property'
 export const NoLanes: Lanes = /*                        */ 0b0000000000000000000000000000000;
+const noTimeout = -1;
+const cancelTimeout = typeof clearTimeout === 'function' ? clearTimeout : () => null;
 let workInProgressRootIncludedLanes: Lanes = NoLanes;
 // The work left over by components that were visited during this render. Only
 // includes unprocessed updates, not work in bailed out children.
@@ -28,12 +34,12 @@ let workInProgressRootSkippedLanes: Lanes = NoLanes;
 let workInProgressRootUpdatedLanes: Lanes = NoLanes;
 // Lanes that were pinged (in an interleaved event) during this render.
 let workInProgressRootPingedLanes: Lanes = NoLanes;
-let workInProgressRootExitStatus: RootExitStatus = RootIncomplete;
+// let workInProgressRootExitStatus: RootExitStatus = RootIncomplete;
 let workInProgressRootFatalError: mixed = null;
 
-let workInProgressRoot: FiberRoot | null = null;
-let workInProgress: Fiber | null = null;
-let workInProgressRootRenderLanes: Lanes = NoLanes;
+// let workInProgressRoot: FiberRoot | null = null;
+// workInProgress: Fiber | null = null;
+// let workInProgressRootRenderLanes: Lanes = NoLanes;
 // Describes where we are in the React execution stack
 
 let subtreeRenderLanes: Lanes = NoLanes;
@@ -184,6 +190,33 @@ function getRootHostContainer(): Container| NoContextT{
 // ref的更新。 新建时， dom节点的初始化，添加当前下直接dom子节点（只有一层）， 处理节点的props
 // 的初始化和ref ， 最后返回null (5) HostText 新建时 文本实例  ， 更新时， 内容更新， 返回null
 
+
+/*
+  以 node = <div><p>123</p><p><h1>456</h1></p></div>为例
+                      
+                    (1)                               (2)
+              root ---> rootFiber              root ---> rootFiber                  
+                            |                               | 
+                            |                               |
+                        divFiber                         divFiber
+                          /                                 /
+                         /                                 /
+workInprogress --> pFiber1                           pFiber1 --> pFiber2   
+                                                                  /
+                                                                 /
+                                                             h1Fiber <--workInprogress
+                                    
+*/
+
+// 它对应的dom节点为p，dom标签创建出来以后进入appendAllChildren，因为当前的workInProgress节点为p，
+// 所以它的child为null，无子节点可插入，退出 return null。 调用栈回到workInProgress = siblingFiber 并且
+// 开始pFiber2的beginwork， 然后开始其child 是h1进入到h1的beginwork 其child为null进入到h1的completework
+// 也就是第二幅图执行完h1fiber的completework后它没有child和sibling 那么 completeWork = h1Fiber.return 
+// 来到divFiber的completeWork阶段  并且将两个子节点p1 p2 的dom节点通过appendAllChildren都插入到div的dom节点下
+// 课件beginwork是从上而下的深度遍历dom树，创建对应的fiber树，completeWork是从叶子几点开始向上，创建对应的dom节点
+// 但是此时的dom节点并没有挂载到dom树上而是挂载到当前节点的stateNode上，并且把其子几点都append到自己的dom上这样执行
+// 到最后其实所有的dom都被挂载到了div节点上，在commit节点只需要把这个div节点挂载到container节点即可
+// 
 function completeWork(
   current: Fiber | null,
   workInProgress: Fiber,
@@ -219,10 +252,7 @@ function completeWork(
           // the commit side-effects on the root.
           // markUpdate(workInProgress);
         } else if (!fiberRoot.hydrate) {
-          // Schedule an effect to clear this container at the start of the next commit.
-          // This handles the case of React rendering into a container with previous children.
-          // It's also safe to do for updates too, because current.child would only be null
-          // if the previous render was null (so the the container would already be empty).
+       
           workInProgress.flags |= Snapshot;
         }
       }
@@ -235,8 +265,21 @@ function completeWork(
       const type = workInProgress.type
       const rootContainerInstance = getRootHostContainer() as Container;
       const currentHostContext = getHostContext();
+      // 若current存在并且workInProgress.stateNode（workInProgress节点对应的DOM实例）存在，
+      //说明此workInProgress节点的DOM节点已经存在，走更新逻辑，否则进行创建。
+      // 若对已有DOM节点进行更新，说明只对属性进行更新即可，因为节点已经存在，不存在删除和新增的情况。
+      // updateHostComponent函数负责HostComponent对应DOM节点属性的更新
       if (current !== null && workInProgress.stateNode != null) {
-        // 
+        // 更新的逻辑
+        updateHostComponent(
+          current,
+          workInProgress,
+          type,
+          newProps,
+          rootContainerInstance,
+        );
+
+        console.log('completeWork 更新dom的逻辑 未实现')
       } else {
         if (!newProps) {
           console.error('error newProps null')
@@ -257,14 +300,16 @@ function completeWork(
             currentHostContext,
             workInProgress,
           );
-
+          
+          // DOM的插入并不是将当前DOM插入它的父节点，而是将当前这个DOM节点的第一层子节点插入到它自己的下面。
           appendAllChildren(instance, workInProgress, false, false);
 
           workInProgress.stateNode = instance;
 
-          // Certain renderers require commit-time effects for initial mount.
-          // (eg DOM renderer supports auto-focus for certain elements).
-          // Make sure such renderers get scheduled for later work.
+          // 上面的插入过程完成了DOM树的构建，这之后要做的就是为每个DOM节点计算它自己的属性（props）。
+          // 由于节点存在创建和更新两种情况，所以对属性的处理也会区别对待。
+          // 属性的创建相对更新来说比较简单，这个过程发生在DOM节点构建的最后，
+          // 调用finalizeInitialChildren函数完成新节点的属性设置。
           if (
             finalizeInitialChildren(
               instance,
@@ -274,6 +319,8 @@ function completeWork(
               currentHostContext,
             )
           ) {
+             // 最终会依据textarea的autoFocus属性
+             // 来决定是否更新fiber
             markUpdate(workInProgress);
           }
         }
@@ -288,9 +335,11 @@ function completeWork(
     }
     case HostText: {
       const newText = newProps;
+      // / 若current存在并且workInProgress.stateNode（workInProgress节点对应的DOM实例）存在，
+      //说明此workInProgress节点的DOM节点已经存在，走更新逻辑，否则进行创建。
       if (current && workInProgress.stateNode != null) {
         // const oldText = current.memoizedProps;
-      
+        console.log('completeWork 更新Text的逻辑 未实现')
         // updateHostText(current, workInProgress, oldText, newText);
       } else {
         if (typeof newText !== 'string') {
@@ -320,7 +369,7 @@ function completeWork(
 }
 
  // 备注：循环判断， 首先根据执行是否出错（1） 1.当fiber 执行没有报错的时候，执行completeWokr(主要处理HostConent, HostTest,
-// 和Host 类型)； 2.根据子fiber 的la呢和childLane, 重新计算当前fiber的childLane;  3. 将
+// 和Host 类型)； 2.根据子fiber 的lane和childLane, 重新计算当前fiber的childLane;  3. 将
 // 当前fiber 上记录的有更新的子孙effct 增加到returnFiber 上， 当前fiber 上有更新，则 也添加
 // 上returnFiber, 跳到第三步， (2)            (3) 判断有无兄弟fiber, 有设置workInprogress
 // 跳出循环 ， 无sibling,将 returnFiber 设置为 workInprogress, 继续循环. (4) 上面
@@ -345,40 +394,84 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
     // 检查工作是否完成或是否有东西抛出。， 没有错误时候
     if ((completedWork.flags & Incomplete) === NoFlags) {
       let next;
-      next = completeWork(current, completedWork, subtreeRenderLanes);
+
+      // 这里关于ProfileMode可以参考createHostRootFiber这个函数
+      if (
+        !enableProfilerTimer ||
+        (completedWork.mode & ProfileMode) === NoMode
+      ) {
+        console.log('completeUnitOfWork, 流程进入到了if')
+        // 对节点进行completeWork，生成DOM，更新props，绑定事件
+        next = completeWork(current, completedWork, subtreeRenderLanes);
+      } else {
+        console.log('completeUnitOfWork, 流程进入到了else')
+        startProfilerTimer(completedWork);
+         // 对节点进行completeWork，生成DOM，更新props，绑定事件
+        next = completeWork(current, completedWork, subtreeRenderLanes);
+        // Update render duration assuming we didn't error.
+        stopProfilerTimerIfRunningAndRecordDelta(completedWork, false);
+      }
+
+   
+      // 下边next !== null 与 siblingFiber !== null 都是赋值workInprogress 
+      // 然后结束complete流程回到performUnitOfWork 
+      // 这里只有在SuspenseComponent这种类型下出现过next不是null的返回，所以暂时可以忽略之
       if (next !== null) {
         // Completing this fiber spawned new work. Work on that next.
         // 完成这个fiber结点的时候产生了一个新的work，接下来处理这个work
-        workInProgress = next;
+       WorkIn.workInProgress = next;
         return;  // 结束流程
       }
-      const siblingFiber = completedWork.sibling;
-    if (siblingFiber !== null) {
-      // If there is more work to do in this returnFiber, do that next.
-      workInProgress = siblingFiber;
-      return;
-    }
-    completedWork = returnFiber;
-    // Update the next thing we're working on in case something throws.
-    workInProgress = completedWork;
+
+    
 
     } else {
+      // 什么情况下节点会被标记上Incomplete呢？
+      // 这还要从最外层的工作循环说起。
+      // concurrent模式的渲染函数：renderRootConcurrent之中在构建workInProgress树时，
+      //使用了try...catch来包裹执行函数，这对处理报错节点提供了机会。一旦某个节点执行出错，会进入handleError函数处理。
+      //该函数中可以获取到当前出错的workInProgress节点，除此之外我们暂且不关注其他功能，只需清楚它调用了throwException。
+     //throwException会为这个出错的workInProgress节点打上Incomplete 的 effectTag，
+     // 表明未完成，在向上找到可以处理错误的节点（即错误边界），添加上ShouldCapture 的 effectTag。
+     /*
+      另外，创建代表错误的update，getDerivedStateFromError放入payload，componentDidCatch放入callback。最后这个update入队节点的updateQueue。
+
+      throwException执行完毕，回到出错的workInProgress节点，执行completeUnitOfWork，目的是将错误终止到当前的节点，因为它本身都出错了，再向下渲染没有意义。
+     */
+    /*
+      对出错节点执行unwindWork。
+      将出错节点的父节点（returnFiber）标记上Incomplete，目的是在父节点执行到completeUnitOfWork的时候，
+      也能被执行unwindWork，进而验证它是否是错误边界。
+      清空出错节点父节点上的effect链
+    */
+   // 关于错误，react这里的水比较深注意处理https://segmentfault.com/a/1190000039031957
       const next = unwindWork(completedWork, subtreeRenderLanes);
 
       // Because this fiber did not complete, don't reset its expiration time.
 
       if (next !== null) {
-        // If completing this work spawned new work, do that next. We'll come
-        // back here again.
-        // Since we're restarting, remove anything that is not a host effect
-        // from the effect tag.
+        
         next.flags &= HostEffectMask;
-        workInProgress = next;
+        WorkIn.workInProgress = next;
         return;
       }
     }
+      // 这里处理siblingFiber这就是fiber树这种模型设计的好处————> 可以很方便的访问层这个概念
+      const siblingFiber = completedWork.sibling;
+      if (siblingFiber !== null) {
+        // If there is more work to do in this returnFiber, do that next.
+        WorkIn.workInProgress = siblingFiber;
+        return;
+      }
+      completedWork = returnFiber;
+      // Update the next thing we're working on in case something throws.
+      WorkIn.workInProgress = completedWork;
 
   } while (completedWork !== null);
+   // We've reached the root.
+   if (WorkIn.workInProgressRootExitStatus === RootIncomplete) {
+    WorkIn.workInProgressRootExitStatus = RootCompleted;
+  }
 }
 /**
  * 
@@ -419,16 +512,28 @@ function performUnitOfWork(unitOfWork: Fiber):void {
 
     unitOfWork.memoizedProps = unitOfWork.pendingProps;
     if (next === null) {
-      // If this doesn't spawn new work, complete the current work.
-      // 进行共搜
-       // 如果没有分配新的工作，完成当前工作
-      //  debugger
+      /*
+        在Diff之后（详见深入理解React Diff原理），workInProgress节点就会进入complete阶段。
+        这个时候拿到的workInProgress节点都是经过diff算法调和过的，
+        也就意味着对于某个节点来说它fiber的形态已经基本确定了，但除此之外还有两点：
+        1 目前只有fiber形态变了，对于原生DOM组件（HostComponent）和文本节点（HostText）的fiber来说，
+        对应的DOM节点（fiber.stateNode）并未变化。
+        2经过Diff生成的新的workInProgress节点持有了flag(即effectTag)
+
+        所以接下来要做的事：
+        1构建或更新DOM节点， 
+          会自下而上将子节点的一层一层插入到当前节点。
+          更新过程中，会计算DOM节点的属性，一旦属性需要更新，会为DOM节点对应的workInProgress节点标记Update
+          的effectTag。
+        2自下而上收集effectList，最终收集到root上
+      
+      */
       completeUnitOfWork(unitOfWork);
     } else {
       // 如果具有
       // workInProgress设置为一下个工作
       console.log('next')
-      workInProgress = next || null;
+      WorkIn.workInProgress = next || null;
     }
   
     // ReactCurrentOwner.current = null;
@@ -438,11 +543,11 @@ function performUnitOfWork(unitOfWork: Fiber):void {
 // 循环遍历performUnitOfWork， 同步更新
 function workLoopSync() {
   // debugger
-  while (workInProgress !== null) {  // 同步更新的时候，一次性更新完
+  while (WorkIn.workInProgress !== null) {  // 同步更新的时候，一次性更新完
     // 执行更新操作
    console.log('work loop')
   //  debugger
-    performUnitOfWork(workInProgress);  // rootFiber的alternate
+    performUnitOfWork(WorkIn.workInProgress);  // rootFiber的alternate
   }
 }
 
@@ -464,10 +569,9 @@ export function renderRootSync (root: FiberRoot, lanes: Lanes) {
   // 如果root或者lanes改变，丢弃现有的栈
   // 而且准备一个新的，否则我们会继续离开我们所在的地方
 
-  if (workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes) {
+  if (WorkIn.workInProgressRoot !== root || WorkIn.workInProgressRootRenderLanes !== lanes) {
     
     // 准备一个当前fiber节点的克隆 放在全局变量workInProgress中
-
     prepareFreshStack(root, lanes);
     // 不处理
     startWorkOnPendingInteractions(root, lanes);
@@ -501,10 +605,10 @@ export function renderRootSync (root: FiberRoot, lanes: Lanes) {
   // }
 
   // Set this to null to indicate there's no in-progress render.
-  workInProgressRoot = null;
-  workInProgressRootRenderLanes = NoLanes;
+  WorkIn.workInProgressRoot = null;
+  WorkIn.workInProgressRootRenderLanes = NoLanes;
 
-  return workInProgressRootExitStatus;
+  return WorkIn.workInProgressRootExitStatus;
 }
 
 export function scheduleCallback(
@@ -576,7 +680,27 @@ export function createWorkInProgress(current: Fiber|null, pendingProps: any): Fi
     workInProgress.alternate = current;
     current.alternate = workInProgress;
   } else {
+    console.info('%c ⚛️  更新','color: red; font-size: 26px;background: yellow')
+    workInProgress.pendingProps = pendingProps;
+    // Needed because Blocks store data on type.
+    workInProgress.type = current.type;
 
+    // We already have an alternate.
+    // Reset the effect tag.
+    workInProgress.flags = NoFlags;
+
+    // The effects are no longer valid.
+    workInProgress.subtreeFlags = NoFlags;
+    workInProgress.deletions = null;
+
+    if (enableProfilerTimer) {
+      // We intentionally reset, rather than copy, actualDuration & actualStartTime.
+      // This prevents time from endlessly accumulating in new commits.
+      // This has the downside of resetting values for different priority renders,
+      // But works for yielding (the common case) and should support resuming.
+      workInProgress.actualDuration = 0;
+      workInProgress.actualStartTime = -1;
+    }
   }
 
   workInProgress.flags = current.flags & StaticMask;
@@ -610,28 +734,28 @@ export function createWorkInProgress(current: Fiber|null, pendingProps: any): Fi
 function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   root.finishedWork = null;
   root.finishedLanes = NoLanes;
-  // const timeoutHandle = root.timeoutHandle;
-  // if (timeoutHandle !== noTimeout) {
-  //   // The root previous suspended and scheduled a timeout to commit a fallback
-  //   // state. Now that we have additional work, cancel the timeout.
-  //   // root.timeoutHandle = noTimeout;
-  //   // // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
-  //   // cancelTimeout(timeoutHandle);
-  // }
+  const timeoutHandle = root.timeoutHandle;
+  if (timeoutHandle !== noTimeout) {
+    // The root previous suspended and scheduled a timeout to commit a fallback
+    // state. Now that we have additional work, cancel the timeout.
+    root.timeoutHandle = noTimeout;
+    // $FlowFixMe Complains noTimeout is not a TimeoutID, despite the check above
+    cancelTimeout(timeoutHandle);
+  }
   // debugger
-  if (workInProgress !== null) {
-    let interruptedWork = workInProgress.return;
-    // while (interruptedWork !== null) {
-    //   unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
-    //   interruptedWork = interruptedWork.return;
-    // }
+  if (WorkIn.workInProgress !== null) {
+    let interruptedWork = WorkIn.workInProgress.return;
+    while (interruptedWork !== null) {
+      // unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
+      interruptedWork = interruptedWork.return;
+    }
   }
 
-  workInProgressRoot = root;
-  workInProgress = createWorkInProgress(root.current, null);
+  WorkIn.workInProgressRoot = root;
+  WorkIn.workInProgress = createWorkInProgress(root.current, null);
 
-  workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
-  workInProgressRootExitStatus = RootIncomplete;
+  WorkIn.workInProgressRootRenderLanes = subtreeRenderLanes = workInProgressRootIncludedLanes = lanes;
+  WorkIn.workInProgressRootExitStatus = RootIncomplete;
   workInProgressRootFatalError = null;
   workInProgressRootSkippedLanes = NoLanes;
   workInProgressRootUpdatedLanes = NoLanes;
@@ -646,20 +770,38 @@ export function markSkippedUpdateLanes(lane: Lane | Lanes): void {
   );
 }
 
+const supportsMicrotasks = false;
 export function performSyncWorkOnRoot(root: FiberRoot) {
+
+  flushPassiveEffects();
   let lanes;
   let exitStatus;
  
-  lanes = getNextLanes(root, NoLanes);  // 当前lanes
-  // debugger
-  exitStatus = renderRootSync(root, lanes);  // lanes 
+  if(  root === WorkIn.workInProgressRoot &&
+    includesSomeLane(root.expiredLanes, WorkIn.workInProgressRootRenderLanes)) {
+      lanes = WorkIn.workInProgressRootRenderLanes;
+      exitStatus = renderRootSync(root, lanes);
+    } else {
+      lanes = getNextLanes(root, NoLanes);
+
+      if (supportsMicrotasks) {
+        // const nextLanesPriority = returnNextLanesPriority();
+        // if (nextLanesPriority < InputDiscreteLanePriority) {
+        //   return null;
+        // }
+      }
+      exitStatus = renderRootSync(root, lanes);
+  }
+
 //   // 标示完成的工作
  const finishedWork: Fiber|null = (root.current?.alternate)||null;
  root.finishedWork = finishedWork;
  root.finishedLanes = lanes;
 //  // 开始commitRoot的部分
-
+// 至此，render阶段全部工作完成。在performSyncWorkOnRoot函数中fiberRootNode被传递给commitRoot方法，
+// 开启commit阶段工作流程。
  commitRoot(root);
+ ensureRootIsScheduled(root, now());
  return null;
 }
 
@@ -790,3 +932,52 @@ export function performConcurrentWorkOnRoot(root: FiberRoot, didTimeout: boolean
   return null;
 }
 
+
+function updateHostComponent (current: Fiber,
+  workInProgress: Fiber,
+  type: any,
+  newProps: Props,
+  rootContainerInstance: Container,) {
+    const oldProps = current.memoizedProps;
+    if (oldProps === newProps) {
+      return;
+    }
+    const instance: Instance = workInProgress.stateNode;
+    const currentHostContext = getHostContext();
+
+    // 它的形式是以2为单位，index为偶数的是key，为奇数的是value：
+    // eg [ 'style', { color: 'blue' }, title, '测试标题' ]
+    const updatePayload = prepareUpdate(
+      instance,
+      type,
+      oldProps,
+      newProps,
+      rootContainerInstance,
+      currentHostContext,
+    );
+    // 最终新属性被挂载到updateQueue中，供commit阶段使用
+    workInProgress.updateQueue = (updatePayload);
+
+    if (updatePayload) {
+      // 标记workInProgress节点有更新主要是flags实现
+      markUpdate(workInProgress);
+    }
+}
+
+export function prepareUpdate(
+  domElement: Instance,
+  type: string,
+  oldProps: Props,
+  newProps: Props,
+  rootContainerInstance: Container,
+  hostContext: HostContext,
+): null | Array<mixed> {
+ 
+  return diffProperties(
+    domElement,
+    type,
+    oldProps,
+    newProps,
+    rootContainerInstance,
+  );
+}
