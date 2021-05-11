@@ -185,7 +185,7 @@ export type Effect = {
   create: () => (() => void) | void,
   destroy: (() => void) | void,
   deps: Array<mixed> | null,
-  next: Effect,
+  next: Effect|null,
 };
 
 

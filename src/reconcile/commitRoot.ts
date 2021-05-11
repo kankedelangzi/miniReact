@@ -21,6 +21,7 @@ import { enableProfilerCommitHooks, enableProfilerTimer } from '../type/constant
 import { cEffect, flushPassiveEffects, scheduleCallback,NormalPriority } from './scheduler'
 import { clearContainer } from '../reactDom/config'
 import { commitUpdate } from '../reactDom/property'
+import { commitHookEffectListMount } from "./effextWork";
 const { unstable_runWithPriority } = Scheduler
 const Scheduler_runWithPriority = unstable_runWithPriority
 let nextEffect: Fiber | null = null;
@@ -193,7 +194,7 @@ function commitBeforeMutationEffects_begin() {
   }
 }
 // 挂载return
-function ensureCorrectReturnPointer(fiber: Fiber, expectedReturnFiber: Fiber|null) {
+export function ensureCorrectReturnPointer(fiber: Fiber, expectedReturnFiber: Fiber|null) {
   fiber.return = expectedReturnFiber;
 }
 
@@ -335,7 +336,11 @@ function commitMutationEffects_complete(
     nextEffect = fiber.return;
   }
 }
-
+/**
+ * 
+ * 这个函数针对被标记了placement  update   的flag的fiber执行相关插入更新操作，
+ * 真正的将dom插入到了container中，并渲染出来
+*/
 function commitMutationEffectsOnFiber(
   finishedWork: Fiber,
   root: FiberRoot,
@@ -985,24 +990,27 @@ function commitLayoutEffectOnFiber(
 
 
 
-function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
-  const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue as any);
-  const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
-  if (lastEffect !== null) {
-    const firstEffect = lastEffect.next;
-    let effect = firstEffect;
-    do {
-      if ((effect.tag & tag) === tag) {
-        // Mount
-        const create = effect.create;
-        effect.destroy = create();
+// function commitHookEffectListMount(tag: number, finishedWork: Fiber) {
+//   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue as any);
+//   const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
+//   if (lastEffect !== null) {
+//     const firstEffect = lastEffect.next;
+//     let effect = firstEffect;
+//     do {
+//       if(!effect) {
+//         break
+//       }
+//       if ((effect.tag & tag) === tag) {
+//         // Mount
+//         const create = effect.create;
+//         effect.destroy = create();
 
         
-      }
-      effect = effect.next;
-    } while (effect !== firstEffect);
-  }
-}
+//       }
+//       effect = effect.next;
+//     } while (effect !== firstEffect);
+//   }
+// }
 
 export function commitUpdateQueue<State>(
   finishedWork: Fiber,

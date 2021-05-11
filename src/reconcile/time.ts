@@ -7,6 +7,13 @@ let layoutEffectStartTime: number = -1;
 let profilerStartTime: number = -1;
 let passiveEffectStartTime: number = -1;
 
+interface Time {
+  passiveEffectStartTime: number
+}
+export const Time = {
+  passiveEffectStartTime: -1
+}
+
 
 export function stopProfilerTimerIfRunning(fiber: Fiber): void {
   if (!enableProfilerTimer) {

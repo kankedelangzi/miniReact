@@ -55,7 +55,7 @@ export function scheduleUpdateOnFiber( fiber: Fiber,  // 触发fiber
     //初始化非批量同步更新
     // Cxt.executionContext 在unbatchedUpdates中切换为LegacyUnbatchedContext上下文
     // 在renderRootSync 中切换为RenderContext上下文  
-    // 在xxx  中切换为CommitContext上下文（还未找到）
+    // 在flushPassiveEffectsImpl  中切换为CommitContext上下文
     if( (Cxt.executionContext & LegacyUnbatchedContext) !== NoContext &&
     (Cxt.executionContext & (RenderContext | CommitContext)) === NoContext) {
       // 如果是本次更新是同步的，并且当前还未渲染，意味着主线程空闲--> NoContext，并没有React的

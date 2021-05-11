@@ -1,12 +1,14 @@
 
 
+import { CommitContext, Cxt } from "../reactDom/context";
 import { now } from "../reactDom/tools";
 import { NoTimestamp } from "../reactDom/workInprogress";
-import scheduler from "../scheduler";
-import { ExecutionContext, Fiber, FiberRoot, Lane, Lanes, mixed, ReactPriorityLevel, SchedulerCallback, SchedulerCallbackOptions, StackCursor } from "../type";
-import { decoupleUpdatePriorityFromScheduler } from "../type/constant";
+import scheduler, { __interactionsRef } from "../scheduler";
+import { ExecutionContext, Fiber, FiberRoot, Interaction, Lane, Lanes, mixed, ReactPriorityLevel, SchedulerCallback, SchedulerCallbackOptions, StackCursor } from "../type";
+import { decoupleUpdatePriorityFromScheduler, enableSchedulerTracing } from "../type/constant";
 
 import { runWithPriority } from "./commitRoot";
+import { commitPassiveMountEffects, commitPassiveUnmountEffects } from "./effextWork";
 import { createCursor } from "./fiberStack";
 export const NoLanes: Lanes = /*                        */ 0b0000000000000000000000000000000;
 export const NoContext = /*             */ 0b0000000;
@@ -33,13 +35,15 @@ interface effectConstant {
   rootWithPendingPassiveEffects : FiberRoot | null;
   rootDoesHavePassiveEffects: boolean;
   pendingPassiveEffectsLanes: Lanes;
-  pendingPassiveEffectsRenderPriority: ReactPriorityLevel
+  pendingPassiveEffectsRenderPriority: ReactPriorityLevel,
+  nextEffect: Fiber|null
 }
 export const cEffect: effectConstant = {
   rootWithPendingPassiveEffects: null,
   rootDoesHavePassiveEffects: false,
   pendingPassiveEffectsLanes: NoLanes,
-  pendingPassiveEffectsRenderPriority: NoPriority
+  pendingPassiveEffectsRenderPriority: NoPriority,
+  nextEffect: null
 }
 
 
@@ -187,11 +191,35 @@ export function flushPassiveEffects(): boolean {
 
 function flushPassiveEffectsImpl(): boolean {
   // 这个变量是在renderRootSync中被赋值的
+  // 先校验，如果root上没有 Passive efectTag的节点，则直接return
   if (cEffect.rootWithPendingPassiveEffects === null) { 
     return false;
   }
 
+  const root = cEffect.rootWithPendingPassiveEffects;
+  const lanes = cEffect.pendingPassiveEffectsLanes;
+  cEffect.rootWithPendingPassiveEffects = null;
+  cEffect.pendingPassiveEffectsLanes = NoLanes;
+  // if (enableSchedulingProfiler) {
+  //   markPassiveEffectsStarted(lanes);
+  // }
+  const prevExecutionContext = Cxt.executionContext;
+  // 给当前全局的context增加一个CommitContext 这个在schedulerFiberOnRoot中的条件中用到
+  Cxt.executionContext |= CommitContext;
+  const prevInteractions = pushInteractions(root);
+
+  commitPassiveUnmountEffects(root.current);
+  commitPassiveMountEffects(root, root.current);
   return false;
+}
+
+function pushInteractions(root:FiberRoot) {
+  if (enableSchedulerTracing) {
+    const prevInteractions: Set<Interaction> | null = __interactionsRef.current;
+    __interactionsRef.current = root.memoizedInteractions;
+    return prevInteractions;
+  }
+  return null;
 }
 
 function reactPriorityToSchedulerPriority(reactPriorityLevel: ReactPriorityLevel) {

@@ -532,10 +532,10 @@ export type Dispatcher = {
   //   observedBits: void | number | boolean,
   // ): T,
   // useRef<T>(initialValue: T): {current: T},
-  // useEffect(
-  //   create: () => (() => void) | void,
-  //   deps: Array<mixed> | void | null,
-  // ): void,
+  useEffect(
+    create: () => (() => void) | void,
+    deps: Array<mixed> | void | null,
+  ): void,
   // useLayoutEffect(
   //   create: () => (() => void) | void,
   //   deps: Array<mixed> | void | null,

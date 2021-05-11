@@ -1,9 +1,13 @@
 import { Fiber, Lanes, Lane, ReactPriorityLevel, 
   BasicStateAction,SharedQueue as ClassQueue,
-  Dispatcher, Dispatch} from '../type'
+  Dispatcher, Dispatch, mixed,
+  Update as UpdateEffect,
+  Passive as PassiveEffect,
+  PassiveStatic as PassiveStaticEffect,
+ } from '../type'
 import {  isSubsetOfLanes, NoLane } from '../reactDom/lane'
 import { ReactCurrentDispatcher } from '../react/hooks'
-
+import {Effect, Passive as HookPassive, HasEffect as HookHasEffect, FunctionComponentUpdateQueue} from "../type/constant";
 import { requestUpdateLane } from '../reactDom/lane'
 import {  isInterleavedUpdate } from '../reactDom/update'
 import { scheduleUpdateOnFiber } from "./index";
@@ -14,12 +18,13 @@ let interleavedQueues: Array<
 > | null = null;
 
 let workInProgressHook: Hook | null = null;
+
 const HooksDispatcherOnMount: Dispatcher = {
   // readContext,
 
   // useCallback: mountCallback,
   // useContext: readContext,
-  // useEffect: mountEffect,
+  useEffect: mountEffect,
   // useImperativeHandle: mountImperativeHandle,
   // useLayoutEffect: mountLayoutEffect,
   // useMemo: mountMemo,
@@ -40,7 +45,7 @@ const HooksDispatcherOnUpdate: Dispatcher = {
 
   // useCallback: updateCallback,
   // useContext: readContext,
-  // useEffect: updateEffect,
+  useEffect: updateEffect,
   // useImperativeHandle: updateImperativeHandle,
   // useLayoutEffect: updateLayoutEffect,
   // useMemo: updateMemo,
@@ -106,6 +111,7 @@ export function renderWithHooks<Props, SecondArg>(
   workInProgress.lanes = NoLanes;
 
   console.log('%c renderWithHooks', 'color: blue',ReactCurrentDispatcher.current)
+  // 区分是挂载还是更新过程，获取不同的hooks函数集合
   ReactCurrentDispatcher.current =
     current === null || current.memoizedState === null
       ? HooksDispatcherOnMount
@@ -160,6 +166,8 @@ export function renderWithHooks<Props, SecondArg>(
   return children;
 }
 
+
+
 /*** *******useState的实现****************/
 
 function mountState<S>(
@@ -211,8 +219,15 @@ function basicStateReducer<S>(state: S, action: BasicStateAction<S>): S {
   // $FlowFixMe: Flow doesn't like mixed types
   return typeof action === 'function' ? (action as (s: S) => S)(state) : action;
 }
-
-function mountWorkInProgressHook(): Hook|null {
+/*
+  产生的hook对象依次排列，形成链表存储到函数组件fiber.memoizedState上。在这个过程中，
+  有一个十分重要的指针：workInProgressHook，它通过记录当前生成（更新）的hook对象，可以间接反映在组件中当前调用到哪个hook函数了。
+  每调用一次hook函数，就将这个指针的指向移到该hook函数产生的hook对象上
+  hook函数每次执行，都会创建它对应的hook对象，去进行下一步的操作，比如useReducer会在hook对象上挂载更新队列，
+  useEffect会在hook对象上挂载effect链表。
+  而创建hook对象的过程实际上也是hooks链表构建以及workInProgressHook指针指向更新的过程。
+*/
+function mountWorkInProgressHook(): Hook {
   const hook: Hook = {
     memoizedState: null,
 
@@ -223,14 +238,44 @@ function mountWorkInProgressHook(): Hook|null {
     next: null,
   };
 
+    /*
+      fiber.memoizedState ---> useState hook
+                             |
+                             |
+                            next
+                             |
+                             ↓
+                        useEffect hook
+                        memoizedState: useEffect的effect对象 ---> useLayoutEffect的effect对象
+                             |              ↑__________________________________|
+                             |
+                            next
+                             |
+                             ↓
+                        useLayoutffect hook
+                        memoizedState: useLayoutEffect的effect对象 ---> useEffect的effect对象
+                                            ↑___________________________________|
+
+    fiber.updateQueue ---> useLayoutEffect ----next----> useEffect
+                             ↑                          |
+                             |__________________________|
+    fiber.memoizedState的hooks链表中，use(Layout)Effect对应hook元素的memoizedState中。
+    fiber.updateQueue中，本次更新的updateQueue，它会在本次更新的commit阶段中被处理。
+    */ 
+   // workInProgressHook为null说明此时还没有hooks链表，
+    // 将新hook对象作为第一个元素挂载到fiber.memoizedState，
+    // 并将workInProgressHook指向它。
+
   if (workInProgressHook === null && currentlyRenderingFiber) {
     // This is the first hook in the list
     currentlyRenderingFiber.memoizedState = workInProgressHook = hook;
   } else if(workInProgressHook) {
     // Append to the end of the list
+      // workInProgressHook不为null说明已经有hooks链表，此时将
+    // 新的hook对象连接到链表后边，并将workInProgressHook指向它。
     workInProgressHook = workInProgressHook.next = hook;
   }
-  return workInProgressHook;
+  return workInProgressHook as Hook;
 }
 
 function dispatchAction<S, A>(
@@ -521,11 +566,31 @@ function updateReducer<S, I, A>(
   const dispatch: Dispatch<A> = queue ? (queue.dispatch as any) : () => null;
   return [hook.memoizedState, dispatch];
 }
+/*
+                currentTree
 
+       current.memoizedState = hookA -> hookB -> hookC
+                                          ^             
+                                      currentHook
+                                          |
+         workInProgress Tree              |
+                                          |                                
+workInProgress.memoizedState = hookA -> hookB
+                                          ^          
+                                 workInProgressHook
+在更新过程中，由于存在current树，所以workInProgress节点也就有对应的current节点。
+那么自然也会有两条hooks链表，分别存在于current和workInProgress节点的memorizedState属性上。
+鉴于此，更新过程的hooks链表构建需要另一个指针的参与：currentHook。
+它作为组件的workInProgressHook在上一次更新时对应的hook对象，新的hook对象可以基于它创建。
+另外，也可以获取到上次hook对象的一些数据，例如useEffect的前后依赖项比较，前一次的依赖项就可以通过它获得。
+*/
 function updateWorkInProgressHook(): Hook {
   
   let nextCurrentHook: null | Hook = null;
   if (currentHook === null && currentlyRenderingFiber) {
+     // currentHook在函数组件调用完成时会被设置为null，
+    // 这说明组件是刚刚开始重新渲染，刚刚开始调用第一个hook函数。
+    // hooks链表为空
     const current = currentlyRenderingFiber.alternate;
     if (current !== null) {
       nextCurrentHook = current.memoizedState;
@@ -533,24 +598,36 @@ function updateWorkInProgressHook(): Hook {
       nextCurrentHook = null;
     }
   } else if(currentHook !== null) {
+    // 这说明已经不是第一次调用hook函数了，
+    // hooks链表已经有数据，nextCurrentHook指向当前的下一个hook
     nextCurrentHook = currentHook.next;
   }
 
   let nextWorkInProgressHook: null | Hook = null;
   if (workInProgressHook === null && currentlyRenderingFiber) {
+     // workInProgress.memoizedState在函数组件每次渲染时都会被设置成null，
+    // workInProgressHook在函数组件调用完成时会被设置为null，
+    // 所以当前的判断分支说明现在正调用第一个hook函数，hooks链表为空
+    // 将nextWorkInProgressHook指向workInProgress.memoizedState，为null
     nextWorkInProgressHook = currentlyRenderingFiber.memoizedState;
   } else if(workInProgressHook !== null) {
+    // 走到这个分支说明hooks链表已经有元素了，将nextWorkInProgressHook指向
+    // hooks链表的下一个元素
     nextWorkInProgressHook = workInProgressHook.next;
   }
 
   if (nextWorkInProgressHook !== null) {
     // There's already a work-in-progress. Reuse it.
+    // 依据上面的推导，nextWorkInProgressHook不为空说明hooks链表不为空
+    // 更新workInProgressHook、nextWorkInProgressHook、currentHook
     workInProgressHook = nextWorkInProgressHook;
     nextWorkInProgressHook = workInProgressHook.next;
 
     currentHook = nextCurrentHook;
   } else  {
     // Clone from the current hook.
+     // 走到这个分支说明hooks链表为空
+    // 刚刚调用第一个hook函数，基于currentHook新建一个hook对象，ß
 
     currentHook = nextCurrentHook;
     let newHook: Hook 
@@ -586,4 +663,169 @@ function updateWorkInProgressHook(): Hook {
     }
   }
   return workInProgressHook as Hook;
+}
+
+
+
+/*************useEffect相关****************/
+
+function mountEffect(
+  create: () => (() => void) | void,
+  deps: Array<mixed> | void | null,
+): void {
+
+  // if (
+  //   __DEV__ &&
+  //   enableStrictEffects &&
+  //   (currentlyRenderingFiber.mode & StrictEffectsMode) !== NoMode
+  // ) {
+  //  // dev
+  // } else {
+    return mountEffectImpl(
+      PassiveEffect | PassiveStaticEffect,
+      HookPassive,
+      create,
+      deps,
+    );
+  // }
+}
+
+function mountEffectImpl(fiberFlags: number, hookFlags:number, create:  () => (() => void) | void, deps: Array<mixed> | void | null): void {
+  const hook = mountWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  if(currentlyRenderingFiber) {
+    // 为fiber打上副作用的effectTag
+    currentlyRenderingFiber.flags |= fiberFlags;
+  }
+ // 创建effect链表，挂载到hook的memoizedState上和fiber的updateQueue
+  hook.memoizedState = pushEffect(
+    HookHasEffect | hookFlags,
+    create,
+    undefined,
+    nextDeps,
+  );
+}
+
+function createFunctionComponentUpdateQueue(): FunctionComponentUpdateQueue {
+  return {
+    lastEffect: null,
+  };
+}
+
+/*
+  下边，就是effect链表的构建过程。我们可以看到，effect对象创建出来最终会以两种形式放到两个地方：
+  单个的effect，放到hook.memorizedState上；环状的effect链表，放到fiber节点的updateQueue中。
+  两者各有用途，前者的effect会作为上次更新的effect，为本次创建effect对象提供参照（对比依赖项数组），
+  后者的effect链表会作为最终被执行的主体，带到commit阶段处理。
+*/
+function pushEffect(tag: number, create:  () => (() => void) | void, destroy?:  () => (() => void) | void, deps: Array<mixed> | null) {
+  const effect: Effect = {
+    tag,
+    create,
+    destroy,
+    deps,
+    // Circular
+    next: null,
+  };
+  // fiber的updateQueue也要挂载相effect相关的副作用
+  if(currentlyRenderingFiber) {
+    // 从workInProgress节点上获取到updateQueue，为构建链表做准备
+    let componentUpdateQueue: null | FunctionComponentUpdateQueue = (currentlyRenderingFiber.updateQueue as any);
+  if (componentUpdateQueue === null) {
+     // 如果updateQueue为空，把effect放到链表中，和它自己形成闭环
+    componentUpdateQueue = createFunctionComponentUpdateQueue();
+     // 将updateQueue赋值给WIP节点的updateQueue，实现effect链表的挂载
+    currentlyRenderingFiber.updateQueue = (componentUpdateQueue as any);
+    componentUpdateQueue.lastEffect = effect.next = effect;
+  } else {
+      // updateQueue不为空，将effect接到链表的后边
+    const lastEffect = componentUpdateQueue.lastEffect;
+    if (lastEffect === null) {
+      componentUpdateQueue.lastEffect = effect.next = effect;
+    } else {
+      const firstEffect = lastEffect.next;
+      lastEffect.next = effect;
+      effect.next = firstEffect;
+      componentUpdateQueue.lastEffect = effect;
+    }
+  }
+  }
+  
+  return effect;
+}
+
+
+function updateEffect(
+  create: () => (() => void) | void,
+  deps: Array<mixed> | void | null,
+): void {
+  
+  return updateEffectImpl(PassiveEffect, HookPassive, create, deps);
+}
+
+/*
+  调用updateEffectImpl，完成effect链表的构建。这个过程中会根据前后依赖项是否变化，
+  从而创建不同的effect对象。具体体现在effect的tag上，如果前后依赖未变，
+  则effect的tag就赋值为传入的hookFlags，否则，在tag中加入HookHasEffect标志位。
+  正是因为这样，在处理effect链表时才可以只处理依赖变化的effect，
+  use(Layout)Effect可以根据它的依赖变化情况来决定是否执行回调。
+*/
+function updateEffectImpl(fiberFlags: number, hookFlags: number, create:  () => (() => void) | void, deps: Array<mixed> | void | null,): void {
+  const hook = updateWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  let destroy = undefined;
+
+  if (currentHook !== null) {
+    const prevEffect = currentHook.memoizedState;
+    // 获取上一次effect的destory函数，也就是useEffect回调中return的函数
+    /*
+      在组件挂载和更新时，有一个区别，就是挂载期间调用pushEffect创建effect对象的时候并没有传destroy函数，
+      而更新期间传了，这是因为每次effect执行时，都是先执行前一次的销毁函数，
+      再执行新effect的创建函数。而挂载期间，上一次的effect并不存在，执行创建函数前也就无需先销毁。
+    */
+    destroy = prevEffect.destroy;
+    if (nextDeps !== null) {
+      const prevDeps = prevEffect.deps;
+      // 比较前后依赖，如果没有变化，push一个不带HookHasEffect的effect
+      if (areHookInputsEqual(nextDeps, prevDeps)) {
+        //挂载和更新，都调用了pushEffect，它的职责很单纯，
+        //就是创建effect对象，构建effect链表，挂到WIP节点的updateQueue上。
+        hook.memoizedState = pushEffect(hookFlags, create, destroy, nextDeps);
+        return;
+      }
+    }
+  }
+
+  if(currentlyRenderingFiber) {
+    currentlyRenderingFiber.flags |= fiberFlags;
+  }
+
+  
+  // 如果前后依赖有变，在effect的tag中加入HookHasEffect
+  // 并将新的effect更新到hook.memoizedState上
+  hook.memoizedState = pushEffect(
+    HookHasEffect | hookFlags,
+    create,
+    destroy,
+    nextDeps,
+  );
+}
+
+function areHookInputsEqual(
+  nextDeps: Array<mixed>,
+  prevDeps: Array<mixed> | null,
+) {
+  
+
+  if (prevDeps === null) {
+   
+    return false;
+  }
+  for (let i = 0; i < prevDeps.length && i < nextDeps.length; i++) {
+    if ( Object.is(nextDeps[i], prevDeps[i])) {
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
