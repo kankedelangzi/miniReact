@@ -20,7 +20,8 @@ const {
   unstable_NormalPriority: Scheduler_NormalPriority,
   unstable_LowPriority: Scheduler_LowPriority,
   unstable_IdlePriority: Scheduler_IdlePriority,
-
+  unstable_shouldYield: Scheduler_shouldYield
+  
 } = scheduler;
 
 export const ImmediatePriority: ReactPriorityLevel = 99;
@@ -30,6 +31,9 @@ export const LowPriority: ReactPriorityLevel = 96;
 export const IdlePriority: ReactPriorityLevel = 95;
 // NoPriority is the absence of priority. Also React-only.
 export const NoPriority: ReactPriorityLevel = 90;
+
+
+export const shouldYield = Scheduler_shouldYield
 
 interface effectConstant {
   rootWithPendingPassiveEffects : FiberRoot | null;

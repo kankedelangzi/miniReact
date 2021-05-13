@@ -26,5 +26,6 @@ ReactDOM.render(
 node,
   document.getElementById('root')
 );
+// ReactDOM.unstable_createRoot(document.getElementById('root') as HTMLElement)
 
 

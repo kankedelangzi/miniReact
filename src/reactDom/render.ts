@@ -74,6 +74,8 @@ export function updateContainer(
   if(!current) {
     return ;
   }
+
+  // 这次更新发生的时间，将来会在update等体现
   const eventTime = requestEventTime();
   
   const lane = requestUpdateLane(current)

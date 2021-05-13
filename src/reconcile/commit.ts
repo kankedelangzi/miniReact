@@ -19,7 +19,7 @@ import { enableSchedulerTracing } from '../type/constant'
 import { __subscriberRef } from "../scheduler";
 import {  ImmediatePriority as ImmediateSchedulerPriority, now} from '../reactDom/tools'
 import { Cxt, RenderContext } from '../reactDom/context'
-import { flushPassiveEffects } from './scheduler'
+import { flushPassiveEffects, shouldYield } from './scheduler'
 import { RootCompleted, WorkIn } from '../reactDom/workInprogress'
 import { startProfilerTimer, stopProfilerTimerIfRunningAndRecordDelta } from './time'
 import { diffProperties } from '../reactDom/property'
@@ -482,6 +482,8 @@ function completeUnitOfWork(unitOfWork: Fiber): void {
   有的话将 workInProgress 其设置为此节点，从而实现寻找下一个节点
   ② 判断 effectTag 创建副作用链表（由子结点往上指向父节点）
   ③ 调用 completeWork 方法
+
+  // !在react代码中很多操作都是成对存在的 而且都是用begin和complete作为前缀或者后缀
  */
 // 执行更新的操作
 function performUnitOfWork(unitOfWork: Fiber):void {
@@ -513,20 +515,17 @@ function performUnitOfWork(unitOfWork: Fiber):void {
     unitOfWork.memoizedProps = unitOfWork.pendingProps;
     if (next === null) {
       /*
-        在Diff之后（详见深入理解React Diff原理），workInProgress节点就会进入complete阶段。
+        在Diff之后workInProgress节点就会进入complete阶段。
         这个时候拿到的workInProgress节点都是经过diff算法调和过的，
-        也就意味着对于某个节点来说它fiber的形态已经基本确定了，但除此之外还有两点：
+        也就意味着对于某个节点来说它fiber的形态已经基本确定了，但除此之外还有两点未实现：
         1 目前只有fiber形态变了，对于原生DOM组件（HostComponent）和文本节点（HostText）的fiber来说，
-        对应的DOM节点（fiber.stateNode）并未变化。
+        对应的DOM节点（fiber.stateNode）还没变化。
         2经过Diff生成的新的workInProgress节点持有了flag(即effectTag)
 
         所以接下来要做的事：
-        1构建或更新DOM节点， 
-          会自下而上将子节点的一层一层插入到当前节点。
-          更新过程中，会计算DOM节点的属性，一旦属性需要更新，会为DOM节点对应的workInProgress节点标记Update
-          的effectTag。
+        1构建或更新DOM节点， 会自下而上将子节点的一层一层插入到当前节点。更新过程中，
+        会计算DOM节点的属性，一旦属性需要更新，会为DOM节点对应的workInProgress节点标记Update的effectTag。
         2自下而上收集effectList，最终收集到root上
-      
       */
       completeUnitOfWork(unitOfWork);
     } else {
@@ -548,6 +547,15 @@ function workLoopSync() {
    console.log('work loop')
   //  debugger
     performUnitOfWork(WorkIn.workInProgress);  // rootFiber的alternate
+  }
+}
+
+
+/** @noinline */
+function workLoopConcurrent() {
+  // Perform work until Scheduler asks us to yield
+  while (WorkIn.workInProgress !== null && !shouldYield()) {
+    performUnitOfWork(WorkIn.workInProgress);
   }
 }
 
@@ -746,11 +754,13 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
   if (WorkIn.workInProgress !== null) {
     let interruptedWork = WorkIn.workInProgress.return;
     while (interruptedWork !== null) {
+      console.log('unwindInterruptedWork未实现')
       // unwindInterruptedWork(interruptedWork, workInProgressRootRenderLanes);
       interruptedWork = interruptedWork.return;
     }
   }
 
+  // 这里对全局变量workInProgressRoot赋值赋值为当前的root对象
   WorkIn.workInProgressRoot = root;
   WorkIn.workInProgress = createWorkInProgress(root.current, null);
 
@@ -777,8 +787,9 @@ export function performSyncWorkOnRoot(root: FiberRoot) {
   let lanes;
   let exitStatus;
  
-  if(  root === WorkIn.workInProgressRoot &&
-    includesSomeLane(root.expiredLanes, WorkIn.workInProgressRootRenderLanes)) {
+  if(  root === WorkIn.workInProgressRoot 
+    &&includesSomeLane(root.expiredLanes, WorkIn.workInProgressRootRenderLanes)) 
+    {
       lanes = WorkIn.workInProgressRootRenderLanes;
       exitStatus = renderRootSync(root, lanes);
     } else {

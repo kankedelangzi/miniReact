@@ -11,10 +11,12 @@ import { enableProfilerTimer, enableSchedulerTracing } from '../type/constant';
 import { unstable_getThreadID } from "../scheduler";
 import { NoTimestamp } from './workInprogress';
 
+// 创建mode是LegacyRoot的根节点
 export function createLegacyRoot(
   container: Container,
   options?: RootOptions,
 ): RootType {
+
   return new ReactDOMBlockingRoot(container, LegacyRoot, options);
 }
 class ReactDOMBlockingRoot {
@@ -30,13 +32,17 @@ class ReactDOMBlockingRoot {
   }
 }
 
+
+
+
+
 /**  * 创建并返回一个fiberRoot  
  *   调用createContainer 产生root  调用markContainerAsRoot标记root并且返回root节点， 插入所有event
 * @param container DOM容器  
 * @param tag fiberRoot节点的标记(LegacyRoot、BatchedRoot、ConcurrentRoot)  
 * @param options 配置信息，只有在hydrate时才有值，否则为undefined  
 * @returns {*}  */
-function createRootImpl( container: Container,tag: RootTag, options: void | RootOptions,) {
+export function createRootImpl( container: Container,tag: RootTag, options: void | RootOptions,) {
     const hydrate = options != null && options.hydrate === true;
     const hydrationCallbacks = (options != null && options.hydrationOptions) || null;
     const strictModeLevelOverride = options != null && options.unstable_strictModeLevel != null
@@ -49,6 +55,7 @@ function createRootImpl( container: Container,tag: RootTag, options: void | Root
       hydrationCallbacks,
       strictModeLevelOverride,
     );
+    // 在container上挂上这个根节点'__reactContainer$' + randomKey;
     markContainerAsRoot(root.current, container)
     //TODO events
 
@@ -93,6 +100,7 @@ interface ICreateFiberRoot {
  * 
  * @param props 
  * @returns 
+ * 创建Fiberroot 并且创建一个rootFiber 并且初始化updateQueue
  */
 export function createFiberRoot(props: ICreateFiberRoot): FiberRoot {
   const {  containerInfo, tag, hydrate, strictModeLevelOverride  } = props;
@@ -190,13 +198,6 @@ class FiberRootNode implements FiberRoot {
   timeoutHandle: any;
   
  
-  
- 
-  
-  
- 
-  
-  
   
 }
 export const createFiber = function(

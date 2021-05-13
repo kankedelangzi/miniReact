@@ -1,5 +1,6 @@
 // import { Element } from '../react/type'
 import { Container, FiberRoot, ReactNodeList, RootType } from '../type';
+import { createRoot } from './concurrent';
 import { legacyCreateRootFromDOMContainer,  unbatchedUpdates, updateContainer } from './render'
 import { getPublicRootInstance } from './tools';
 interface IlegacyRenderSubtreeIntoContainerProps {
@@ -66,4 +67,6 @@ export default class ReactDom {
       }
     );
   }
+
+  static unstable_createRoot = createRoot
 }

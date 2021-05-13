@@ -10,20 +10,22 @@ import { Fiber, Lanes, Update, UpdateQueue,
    NoFlags,ReactContext,
    ClassComponent,HostPortal,ContextProvider,
   TypeOfMode,ChildDeletion, HostText,HostComponent,
-  ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot, mixed, FunctionComponent } from '../type/index'
+  ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot, mixed, FunctionComponent, Callback } from '../type/index'
 import { shouldSetTextContent } from '../reactDom/tools'
 import {  cloneChildFibers, createFiberFromElement, createFiberFromText } from '../reactDom/create'
 import { createCursor, push, pop, rootInstanceStackCursor, NoContextT, NO_CONTEXT } from './fiberStack'
 import { } from './tools'
-import { getRootHostContext, hasContextChanged as hasLegacyContextChanged } from '../reactDom/context'
+import { Cxt, getRootHostContext, hasContextChanged as hasLegacyContextChanged } from '../reactDom/context'
 import { createChild } from '../reactDom/create'
-import { mountIndeterminateComponent} from './functionComponent'
+import { mountIndeterminateComponent, prepareToReadContext} from './functionComponent'
 import { canHydrateInstance, canHydrateTextInstance, getNextHydratableSibling, getFirstHydratableChild } from '../reactDom/instance'
 import { createWorkInProgress, markSkippedUpdateLanes } from './commit'
-import { includesSomeLane, NoLanes } from "../reactDom/lane";
+import { includesSomeLane, isSubsetOfLanes, mergeLanes, NoLane, NoLanes } from "../reactDom/lane";
 import { enableCache, isPrimaryRenderer, supportsHydration, enableProfilerTimer} from "../type/constant";
 import { CacheContext } from "./cache";
 import { stopProfilerTimerIfRunning } from "./time";
+import { resolveDefaultProps } from './commitRoot'
+import { updateClassComponent } from './classComponent'
 
 const valueCursor: StackCursor<mixed> = createCursor(null);
 const isArray = Array.isArray;
@@ -47,14 +49,42 @@ function resetHydrationState(): void {
   isHydrating = false;
 }
 
+/*
+  React对每个节点进行beginWork操作，进入beginWork后，首先判断节点及其子树是否有更新，
+  若有更新，则会在计算新状态和diff之后生成新的Fiber，然后在新的fiber上标记flags（effectTag），
+  最后return它的子节点，以便继续针对子节点进行beginWork。若它没有子节点，则返回null，
+  这样说明这个节点是末端节点，可以进行向上回溯，进入completeWork阶段。
+  通过概述可知beginWork阶段的整体工作是去更新节点，并返回子树，但真正的beginWork函数只是节点更新的入口，
+  不会直接进行更新操作。作为入口，它的职责很明显，拦截无需更新的节点。同时，它还会将context信息入到栈中
+*/
+/*
+beginWork它的返回值有两种情况：
+返回当前节点的子节点，然后会以该子节点作为下一个工作单元继续beginWork，不断往下生成fiber节点，构建workInProgress树。
+返回null，当前fiber子树的遍历就此终止，从当前fiber节点开始往回进行completeWork。
+bailoutOnAlreadyFinishedWork函数的返回值也是如此。
+返回当前节点的子节点，前置条件是当前节点的子节点有更新，此时当前节点未经处理，是可以直接复用的，复用的过程就是复制一份current节点的子节点，并把它return出去。
+返回null，前提是当前子节点没有更新，当前子树的遍历过程就此终止。开始completeWork。
+
+*/
 export function beginWork(
   current: Fiber | null,
   workInProgress: Fiber,
   renderLanes: Lanes,
 ): Fiber | null {
+  // 获取workInProgress.lanes，可通过判断它是否为空去判断该节点是否需要更新
   const updateLanes = workInProgress.lanes;
   // debugger
   /*****************************这段代码已知作用是在update时过滤掉不需要更新的fiber节点************* */
+   // 依据current是否存在判断当前是首次挂载还是后续的更新
+  // 如果是更新，先看优先级够不够，不够的话就能调用bailoutOnAlreadyFinishedWork
+  // 复用fiber节点来跳出对当前这个节点的处理了。
+  /*
+  这首先要理解current是什么，基于双缓冲的规则，调度更新时有两棵树，
+  展示在屏幕上的current Tree和正在后台基于current树构建的workInProgress Tree。
+  那么，current和workInProgress可以理解为镜像的关系。workLoop循环当前遍历到的
+  workInProgress节点来自于它对应的current节点父级fiber的子节点（即current节点），
+  所以workInProgress节点和current节点也是镜像的关系。
+  */
   if (current !== null) {
     const oldProps = current.memoizedProps;
     const newProps = workInProgress.pendingProps;
@@ -67,7 +97,10 @@ export function beginWork(
       // This may be unset if the props are determined to be equal later (memo).
       didReceiveUpdate = true;
     
-    } else if (!includesSomeLane(renderLanes, updateLanes)) {
+    } 
+    // 先去识别该节点是否需要处理，若无需处理，则调用bailoutOnAlreadyFinishedWork复用节点，
+    // 否则才真正去更新。
+    else if (!includesSomeLane(renderLanes, updateLanes)) {
       didReceiveUpdate = false;
       // This fiber does not have any pending work. Bailout without entering
       // the begin phase. There's still some bookkeeping we that needs to be done
@@ -259,6 +292,8 @@ export function beginWork(
           break;
         }
       }
+      //，若节点的优先级不满足要求，说明它不用更新，会调用bailoutOnAlreadyFinishedWork函数，
+      // 去复用current节点作为新的workInProgress树的节点。
       return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
     } else {
       if ((current.flags & ForceUpdateForLegacySuspense) !== NoFlags) {
@@ -294,6 +329,21 @@ export function beginWork(
       return updateHostRoot(current, workInProgress, renderLanes);
     case HostComponent: 
       return updateHostComponent(current, workInProgress, renderLanes)
+    case ClassComponent: {
+        const Component = workInProgress.type;
+        const unresolvedProps = workInProgress.pendingProps;
+        const resolvedProps =
+          workInProgress.elementType === Component
+            ? unresolvedProps
+            : resolveDefaultProps(Component, unresolvedProps);
+        return updateClassComponent(
+          current,
+          workInProgress,
+          Component,
+          resolvedProps,
+          renderLanes,
+        );
+      }
     case HostText:
       return updateHostText(current, workInProgress);
     // case FunctionComponent: {
@@ -358,7 +408,12 @@ export function pushProvider<T>(
   }
 }
 
-
+/*
+我们也可以意识到，识别当前fiber节点的子树有无更新显得尤为重要，这可以决定是否终止当前Fiber子树的遍历，
+将复杂度直接降低。实际上可以通过fiber.childLanes去识别，childLanes如果不为空，
+表明子树中有需要更新的节点，那么需要继续往下走。
+标记fiber.childLanes的过程是在开始调度时发生的，在markUpdateLaneFromFiberToRoot 函数中
+*/
 
 function bailoutOnAlreadyFinishedWork(
   current: Fiber | null,
@@ -377,7 +432,7 @@ function bailoutOnAlreadyFinishedWork(
 
   markSkippedUpdateLanes(workInProgress.lanes); // TODO
 
- 
+ // 如果子节点没有更新，返回null，终止遍历
   if (!includesSomeLane(renderLanes, workInProgress.childLanes)) {
 
     return null;
@@ -630,10 +685,13 @@ function updateHostComponent(
   return workInProgress.child
 }
 
+
+
 function placeSingleChild(newFiber: Fiber): Fiber {
   // This is simpler for the single child case. We only need to do a
   // placement for inserting new children.
   if (true && newFiber.alternate === null) { //TODO
+    // 这里添加Placement标记在commit中使用
     newFiber.flags |= Placement;
   }
   return newFiber;
@@ -1059,12 +1117,22 @@ export function processUpdateQueue<State>(
   instance: any,
   renderLanes: Lanes,
 ): void {
-   // 更新队列
-  // 这在ClassComponent或HostRoot上总是非空。
+  /*
+  整理updateQueue。由于优先级的原因，会使得低优先级更新被跳过等待下次执行，这个过程中，
+  又有可能产生新的update。所以当处理某次更新的时候，有可能会有两条update队列：
+  上次遗留的和本次新增的。上次遗留的就是从firstBaseUpdate 到 lastBaseUpdate 
+  之间的所有update；本次新增的就是新产生的那些的update。
+  准备阶段阶段主要是将两条队列合并起来，并且合并之后的队列不再是环状的，目的方便从头到尾遍历处理。
+  另外，由于以上的操作都是处理的workInProgress节点的updateQueue，所以还需要在current节点也操作一遍，
+  保持同步，目的在渲染被高优先级的任务打断后，再次以current节点为原型新建workInProgress节点时，
+  不会丢失之前尚未处理的update。
+  */
   const queue: UpdateQueue<State> = (workInProgress.updateQueue);
   let pendingQueue = queue.shared.pending;
-   // 更新队列
+
   let firstBaseUpdate = queue.firstBaseUpdate; // 设置firstBaseUpdate
+
+
   if (pendingQueue !== null) {
     queue.shared.pending = null;
 
@@ -1105,19 +1173,152 @@ export function processUpdateQueue<State>(
     }
   }
  
-
+   // 至此，新队列已经合并到遗留队列上，firstBaseUpdate作为
+ // 这个新合并的队列，会被循环处理
+ // 处理阶段-------------------------------------
   if(firstBaseUpdate !== null) {
     let newState = queue.baseState;
-    let update = firstBaseUpdate;
-    // Process this update.
-    newState = getStateFromUpdate(
-      workInProgress,
-      queue,
-      update,
-      newState,
-      props,
-      instance,
-    );
+  
+    let newLanes = NoLanes;
+
+    let newBaseState:Update<State> | null = null ;
+    let newFirstBaseUpdate: Update<State> |null = null
+    let newLastBaseUpdate:Update<State> | null = null;
+
+    let update:Update<State> | null = firstBaseUpdate;
+    do {
+      const updateLane = update.lane;
+      const updateEventTime = update.eventTime;
+       // isSubsetOfLanes函数的意义是，判断当前更新的优先级（updateLane）
+     // 是否在渲染优先级（renderLanes）中如果不在，那么就说明优先级不足
+      if (!isSubsetOfLanes(renderLanes, updateLane)) {
+        // Priority is insufficient. Skip this update. If this is the first
+        // skipped update, the previous update/state is the new base
+        // update/state.
+        const clone: Update<State> = {
+          eventTime: updateEventTime,
+          lane: updateLane,
+
+          tag: update.tag,
+          payload: update.payload,
+          callback: update.callback,
+
+          next: null,
+        };
+         // 优先级不足，将update添加到本次的baseUpdate队列中
+        if (newLastBaseUpdate === null) {
+          newFirstBaseUpdate = newLastBaseUpdate = clone;
+          // newBaseState 更新为前一个 update 任务的结果，下一轮
+        // 持有新优先级的渲染过程处理更新队列时，将会以它为基础进行计算。
+          newBaseState = newState as any;
+        } else {
+          // 如果baseUpdate队列中已经有了update，那么将当前的update
+       // 追加到队列尾部
+          newLastBaseUpdate.next = clone;
+          newLastBaseUpdate = clone
+        }
+          /* *
+      * newLanes会在最后被赋值到workInProgress.lanes上，而它又最终
+      * 会被收集到root.pendingLanes。
+      *  再次更新时会从root上的pendingLanes中找出渲染优先级（renderLanes），
+      * renderLanes含有本次跳过的优先级，再次进入processUpdateQueue时，
+      * update的优先级符合要求，被更新掉，低优先级任务因此被重做
+      * */
+        // Update the remaining priority in the queue.
+        newLanes = mergeLanes(newLanes, updateLane);
+      } else {
+        // This update does have sufficient priority.
+          // 进到这个判断说明现在处理的这个update在优先级不足的update之后，
+     // 原因有二：
+     // 第一，优先级足够；
+     // 第二，newLastBaseUpdate不为null说明已经有优先级不足的update了
+     // 然后将这个高优先级放入本次的baseUpdate，实现之前提到的从updateQueue中
+     // 截取低优先级update到最后一个update
+        if (newLastBaseUpdate !== null) {
+          const clone: Update<State> = {
+            eventTime: updateEventTime,
+            // This update is going to be committed so we never want uncommit
+            // it. Using NoLane works because 0 is a subset of all bitmasks, so
+            // this will never be skipped by the check above.
+            lane: NoLane,
+
+            tag: update.tag,
+            payload: update.payload,
+            callback: update.callback,
+
+            next: null,
+          };
+          newLastBaseUpdate.next = clone;
+          newLastBaseUpdate = clone
+        }
+
+
+        // Process this update.
+        newState = getStateFromUpdate(
+          workInProgress,
+          queue,
+          update,
+          newState,
+          props,
+          instance,
+        );
+        const callback = update.callback;
+        if (callback !== null) {
+          workInProgress.flags |= Callback;
+          const effects = queue.effects;
+          if (effects === null) {
+            queue.effects = [update];
+          } else {
+            effects.push(update);
+          }
+        }
+      }
+      update = update.next;
+      if (update === null) {
+        pendingQueue = queue.shared.pending;
+        if (pendingQueue === null) {
+          break;
+        } else {
+          // An update was scheduled from inside a reducer. Add the new
+          // pending updates to the end of the list and keep processing.
+          const lastPendingUpdate = pendingQueue;
+          // Intentionally unsound. Pending updates form a circular list, but we
+          // unravel them when transferring them to the base queue.
+          const firstPendingUpdate = (lastPendingUpdate.next as Update<State>);
+          lastPendingUpdate.next = null;
+          update = firstPendingUpdate;
+          queue.lastBaseUpdate = lastPendingUpdate;
+          queue.shared.pending = null;
+        }
+      }
+    } while (true);
+
+    if (newLastBaseUpdate === null) {
+      newBaseState = newState as any;
+    }
+
+    queue.baseState = (newBaseState  as any);
+    queue.firstBaseUpdate = newFirstBaseUpdate;
+    queue.lastBaseUpdate = newLastBaseUpdate;
+
+    // Interleaved updates are stored on a separate queue. We aren't going to
+    // process them during this render, but we do need to track which lanes
+    // are remaining.
+    const lastInterleaved = queue.shared.interleaved;
+    if (lastInterleaved !== null) {
+      let interleaved = lastInterleaved;
+      do {
+        newLanes = mergeLanes(newLanes, interleaved.lane);
+        interleaved = ((interleaved).next as Update<State>);
+      } while (interleaved !== lastInterleaved);
+    } else if (firstBaseUpdate === null) {
+      // `queue.lanes` is used for entangling transitions. We can set it back to
+      // zero once the queue is empty.
+      queue.shared.lanes = NoLanes;
+    }
+
+    markSkippedUpdateLanes(newLanes);
+    workInProgress.lanes = newLanes;
     workInProgress.memoizedState = newState;
   }
   

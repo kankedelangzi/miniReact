@@ -44,7 +44,7 @@ export function scheduleUpdateOnFiber( fiber: Fiber,  // 触发fiber
   // 获取当前环境的优先级
 
   // executionContext  执行环境  同步更新时
-  
+  //TODo 什么时候会有root === WorkIn.workInProgressRoot这个条件？
   if (root === WorkIn.workInProgressRoot) {
     // 
     console.log('root === workInProgressRoot')

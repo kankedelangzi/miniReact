@@ -701,7 +701,7 @@ function mountEffectImpl(fiberFlags: number, hookFlags:number, create:  () => ((
   hook.memoizedState = pushEffect(
     HookHasEffect | hookFlags,
     create,
-    undefined,
+    null,
     nextDeps,
   );
 }
@@ -718,7 +718,7 @@ function createFunctionComponentUpdateQueue(): FunctionComponentUpdateQueue {
   两者各有用途，前者的effect会作为上次更新的effect，为本次创建effect对象提供参照（对比依赖项数组），
   后者的effect链表会作为最终被执行的主体，带到commit阶段处理。
 */
-function pushEffect(tag: number, create:  () => (() => void) | void, destroy?:  () => (() => void) | void, deps: Array<mixed> | null) {
+function pushEffect(tag: number, create:  () => (() => void) | void, destroy: any, deps: Array<mixed> | null) {
   const effect: Effect = {
     tag,
     create,

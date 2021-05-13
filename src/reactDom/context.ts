@@ -15,10 +15,12 @@ export const RenderContext = /*                */ 0b0010000;
 export const CommitContext = /*                */ 0b0100000;
 
 interface contextConstant {
-  executionContext: ExecutionContext
+  executionContext: ExecutionContext,
+  previousContext: {[key: string]: any}
 }
 export const Cxt: contextConstant = {
-  executionContext: NoContext
+  executionContext: NoContext,
+  previousContext: {}
 }
 
 

@@ -8,8 +8,8 @@ export const enableSchedulerDebugging = false;
 const enableProfiling = false;//
 var maxSigned31BitInt = 1073741823;
 
-var taskQueue: Task[]= [];
-var timerQueue: Task[] = [];
+var taskQueue: Task[]= [];//保存已就绪任务
+var timerQueue: Task[] = [];// 保存未就绪任务
 
 var currentTask: Task|null = null;
 
