@@ -46,7 +46,14 @@ function getUnmaskedContext(
 let currentlyRenderingFiber: Fiber | null = null;
 let lastContextDependency: ContextDependency<mixed> | null = null;
 let lastContextWithAllBitsObserved: ReactContext<any> | null = null;
-
+export function resetContextDependencies(): void {
+  // This is called right before React yields execution, to ensure `readContext`
+  // cannot be called outside the render phase.
+  currentlyRenderingFiber = null;
+  lastContextDependency = null;
+  lastContextWithAllBitsObserved = null;
+ 
+}
 export function prepareToReadContext(
   workInProgress: Fiber,
   renderLanes: Lanes,
@@ -112,7 +119,7 @@ export function mountIndeterminateComponent(
   
   // React DevTools reads this flag.
   workInProgress.flags |= PerformedWork;
-  debugger
+  // debugger
 
   if (
     // Run these checks in production only if the flag is off.

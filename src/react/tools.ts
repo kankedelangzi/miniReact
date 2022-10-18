@@ -25,7 +25,7 @@ export function ReactElement (type: string,
 
 }
 
-export const ReactCurrentOwner = {
+export const ReactCurrentOwner: {current: any} = {
   /**
    * @internal
    * @type {ReactComponent}

@@ -2,14 +2,21 @@ import { RootOptions, RootType, Container, HostText,REACT_ELEMENT_TYPE,IReactEle
   LegacyRoot, RootTag, FiberRoot, NoFlags,Lanes,HostComponent,ProfileMode,
   ClassComponent,
   Fiber, WorkTag, TypeOfMode, BlockingRoot, NoMode, Cache,IndeterminateComponent,
-  HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap}  from '../type/index'
+  HostRoot, ConcurrentRoot, ConcurrentMode, BlockingMode, LaneMap, Interaction, LanePriority}  from '../type/index'
 import { markContainerAsRoot  } from './tools'
 import { initializeUpdateQueue } from './update'
-import { NoLanes, createLaneMap } from './lane'
+import { NoLanes, createLaneMap, NoLanePriority } from './lane'
+import { createWorkInProgress } from '../reconcile/commit';
+import { enableProfilerTimer, enableSchedulerTracing } from '../type/constant';
+import { unstable_getThreadID } from "../scheduler";
+import { NoTimestamp } from './workInprogress';
+
+// 创建mode是LegacyRoot的根节点
 export function createLegacyRoot(
   container: Container,
   options?: RootOptions,
 ): RootType {
+
   return new ReactDOMBlockingRoot(container, LegacyRoot, options);
 }
 class ReactDOMBlockingRoot {
@@ -25,12 +32,17 @@ class ReactDOMBlockingRoot {
   }
 }
 
+
+
+
+
 /**  * 创建并返回一个fiberRoot  
+ *   调用createContainer 产生root  调用markContainerAsRoot标记root并且返回root节点， 插入所有event
 * @param container DOM容器  
 * @param tag fiberRoot节点的标记(LegacyRoot、BatchedRoot、ConcurrentRoot)  
 * @param options 配置信息，只有在hydrate时才有值，否则为undefined  
 * @returns {*}  */
-function createRootImpl( container: Container,tag: RootTag, options: void | RootOptions,) {
+export function createRootImpl( container: Container,tag: RootTag, options: void | RootOptions,) {
     const hydrate = options != null && options.hydrate === true;
     const hydrationCallbacks = (options != null && options.hydrationOptions) || null;
     const strictModeLevelOverride = options != null && options.unstable_strictModeLevel != null
@@ -43,6 +55,7 @@ function createRootImpl( container: Container,tag: RootTag, options: void | Root
       hydrationCallbacks,
       strictModeLevelOverride,
     );
+    // 在container上挂上这个根节点'__reactContainer$' + randomKey;
     markContainerAsRoot(root.current, container)
     //TODO events
 
@@ -76,12 +89,19 @@ export function createContainer(
 }
 
 interface ICreateFiberRoot {
-  containerInfo: Container,
-  tag: RootTag,
+  containerInfo: Container, // 根dom节点
+  tag: RootTag,  // LegacyRoot
   hydrate: boolean,
   hydrationCallbacks: null | any,
   strictModeLevelOverride: null | number,
 }
+
+/**
+ * 
+ * @param props 
+ * @returns 
+ * 创建Fiberroot 并且创建一个rootFiber 并且初始化updateQueue
+ */
 export function createFiberRoot(props: ICreateFiberRoot): FiberRoot {
   const {  containerInfo, tag, hydrate, strictModeLevelOverride  } = props;
   const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate));
@@ -129,6 +149,8 @@ class FiberRootNode implements FiberRoot {
   eventTimes: LaneMap<number>;
   finishedWork: Fiber | null;
   finishedLanes: number;
+  entangledLanes: number;
+  entanglements: LaneMap<number>;
   constructor(containerInfo: Container, tag: RootTag, hydrate: boolean) {
     this.current = null;
     this.tag = tag;
@@ -145,23 +167,37 @@ class FiberRootNode implements FiberRoot {
     this.mutableReadLanes = NoLanes;
     this.finishedLanes = NoLanes;
   
-    // this.entangledLanes = NoLanes;
-    // this.entanglements = createLaneMap(NoLanes);
+    this.entangledLanes = NoLanes;
+    this.entanglements = createLaneMap(NoLanes);
     this.eventTimes = createLaneMap(NoLanes);
     this.context = null;
     this.pendingContext = null;
     this.pooledCache = null;
     this.hydrate = hydrate;
+    if (enableSchedulerTracing) {
+
+      this.interactionThreadID = unstable_getThreadID();
+      this.memoizedInteractions = new Set();
+      this.pendingInteractionMap = new Map();
+    } else { // todo
+      this.interactionThreadID = 0;
+      this.memoizedInteractions = new Set();
+      this.pendingInteractionMap = new Map();
+    }
+    this.eventTimes = createLaneMap(NoLanes);
+    this.expirationTimes = createLaneMap(NoTimestamp);
+    this.callbackPriority = NoLanePriority;
 
   }
- 
+  callbackNode: any;
+  callbackPriority: LanePriority;
+  expirationTimes: LaneMap<number>;
+  interactionThreadID: number;
+  memoizedInteractions: Set<Interaction>;
+  pendingInteractionMap: Map<number, Set<Interaction>>;
+  timeoutHandle: any;
   
  
-  
-  
- 
-  
-  
   
 }
 export const createFiber = function(
@@ -187,7 +223,10 @@ export function createHostRootFiber(
   } else {
     mode = NoMode;
   }
-  mode |= ProfileMode;
+  if( enableProfilerTimer){
+    mode |= ProfileMode;
+  }
+  
   return createFiber(HostRoot, null, null, mode);
 }
 
@@ -207,6 +246,10 @@ class FiberNode implements Fiber {
   memoizedProps: any;
   flags: number;
   dependencies: any;
+  actualDuration: number;
+  actualStartTime: number;
+  selfBaseDuration: number;
+  treeBaseDuration: number;
   constructor (
     tag: WorkTag,
     pendingProps: any,
@@ -230,6 +273,22 @@ class FiberNode implements Fiber {
     this.subtreeFlags = 0
     this.pendingProps = pendingProps
     this.dependencies = null;
+    this.memoizedProps = null;
+    this.updateQueue = null;
+    this.memoizedState = null;
+    this.dependencies = null;
+    this.actualDuration = Number.NaN;
+    this.actualStartTime = Number.NaN;
+    this.selfBaseDuration = Number.NaN;
+    this.treeBaseDuration = Number.NaN;
+
+    if (enableProfilerTimer) {
+    this.actualDuration = 0;
+    this.actualStartTime = -1;
+    this.selfBaseDuration = 0;
+    this.treeBaseDuration = 0;
+    }
+    
   }
   subtreeFlags: number;
   key: string | null;
@@ -373,4 +432,29 @@ export function createChild(
   }
 
   return null;
+}
+
+
+export function cloneChildFibers(
+  current: Fiber | null,
+  workInProgress: Fiber,
+): void {
+
+  if (workInProgress.child === null) {
+    return;
+  }
+  let currentChild = workInProgress.child;
+  let newChild = createWorkInProgress(currentChild, currentChild.pendingProps);
+  workInProgress.child = newChild;
+
+  newChild.return = workInProgress;
+  while (currentChild.sibling !== null) {
+    currentChild = currentChild.sibling;
+    newChild = newChild.sibling = createWorkInProgress(
+      currentChild,
+      currentChild.pendingProps,
+    );
+    newChild.return = workInProgress;
+  }
+  newChild.sibling = null;
 }
