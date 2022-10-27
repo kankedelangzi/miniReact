@@ -42,6 +42,7 @@ export const LazyComponent = 16;
 export const IncompleteClassComponent = 17;
 export const DehydratedFragment = 18;
 export const SuspenseListComponent = 19;
+export const FundamentalComponent = 20;
 export const ScopeComponent = 21;
 
 export const Block = 22;
@@ -228,6 +229,7 @@ export type Dependencies = {
 };
 
 export interface Fiber {
+  nextEffect: Fiber | null;
   // // These first fields are conceptually members of an Instance. This used to
   // // be split into a separate type and intersected with the other Fiber fields,
   // // but until Flow fixes its intersection bugs, we've merged them into a

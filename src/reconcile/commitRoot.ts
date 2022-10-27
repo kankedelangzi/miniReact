@@ -8,7 +8,7 @@ import { FiberRoot, ReactPriorityLevel,Fiber,
   Snapshot, Passive, ContentReset, Ref, Profiler, 
   LayoutMask, FunctionComponent, ForwardRef, SimpleMemoComponent, 
   Block, ClassComponent, Callback, SuspenseComponent, 
-  Props, UpdateQueue } from '../type/index'
+  Props, UpdateQueue, ScopeComponent, Deletion } from '../type/index'
 import { getCurrentPriorityLevel } from './tools'
 import { NoLanes}  from '../reactDom/lane'
 import { ImmediatePriority as  ImmediateSchedulerPriority} from '../reactDom/tools'
@@ -16,9 +16,37 @@ import { ImmediatePriority } from '../scheduler/propity'
 import Scheduler from '../scheduler/index'
 import { insertInContainerBefore, appendChildToContainer, insertBefore, appendChild } from '../reactDom/domOperation'
 import { FunctionComponentUpdateQueue, HookFlags, 
-  Layout as HookLayout,  HasEffect as HookHasEffect, } from '../type/constant'
+  Layout as HookLayout,  HasEffect as HookHasEffect, enableScopeAPI, } from '../type/constant'
+import { commitWork } from './commitWork'
+import { commitBeforeMutationLifeCycles as commitBeforeMutationEffectOnFiber } from './classComponent'
+import { NormalPriority as NormalSchedulerPriority, scheduleCallback } from './scheduler'
 const { unstable_runWithPriority  } = Scheduler
 const Scheduler_runWithPriority = unstable_runWithPriority
+
+const requestPaint = () => null;
+
+let nextEffect: Fiber | null = null;
+let hasUncaughtError = false;
+let firstUncaughtError = null;
+let legacyErrorBoundariesThatAlreadyFailed: Set<mixed> | null = null;
+
+let rootWithPendingPassiveEffects: FiberRoot | null = null;
+// let pendingPassiveEffectsRenderPriority: ReactPriorityLevel = NoSchedulerPriority;
+let pendingPassiveEffectsLanes: Lanes = NoLanes;
+let pendingPassiveHookEffectsMount: Array<HookEffect | Fiber> = [];
+let pendingPassiveHookEffectsUnmount: Array<HookEffect | Fiber> = [];
+let pendingPassiveProfilerEffects: Array<Fiber> = [];
+
+let rootsWithPendingDiscreteUpdates: Set<FiberRoot> | null = null;
+
+// Use these to prevent an infinite loop of nested updates
+const NESTED_UPDATE_LIMIT = 50;
+let nestedUpdateCount: number = 0;
+let rootWithNestedUpdates: FiberRoot | null = null;
+
+const NESTED_PASSIVE_UPDATE_LIMIT = 50;
+let nestedPassiveUpdateCount: number = 0;
+
 let rootDoesHavePassiveEffects: boolean = false;
 //获取当前优先级， 调用runWithPriority ， 传入的函数的参数第一个为最高的优先级,
 // 第二个参数commitRootImpl 为执行的函数
@@ -46,8 +74,34 @@ export function runWithPriority<T>(
   return Scheduler_runWithPriority(priorityLevel, fn);
 }
 
+/*
+commit 阶段大致可以分为以下几个过程：
 
+获取 effectList 链表，如果 root 上有 effect，则将其也添加进 effectList 中
+对 effectList 进行第一次遍历，执行 commitBeforeMutationEffects 函数来更新class组件实例上的state、props 等，以及执行 getSnapshotBeforeUpdate 生命周期函数
+对 effectList 进行第二次遍历，执行 commitMutationEffects 函数来完成副作用的执行，主要包括重置文本节点以及真实 dom 节点的插入、删除和更新等操作。
+对 effectList 进行第三次遍历，执行 commitLayoutEffects 函数，去触发 componentDidMount、componentDidUpdate 以及各种回调函数等
+最后进行一点变量还原之类的收尾，就完成了 commit 阶段
+
+*/
+
+
+/*
+在rootFiber.firstEffect上保存了一条需要执行副作用的Fiber节点的单向链表effectList，
+这些Fiber节点的updateQueue中保存了变化的props。这些副作用对应的DOM操作在commit阶段执行。
+除此之外，一些生命周期钩子（比如componentDidXXX）、hook（比如useEffect）需要在commit阶段执行。
+*/
 function commitRootImpl(root: FiberRoot, renderPriorityLevel: ReactPriorityLevel) {
+  do {
+    /* 翻译的原文注释
+    `flushPassiveEffects` 会在最后调用 `flushSyncUpdateQueue`，
+    这意味着 `flushPassiveEffects` 有时会导致额外的被动效果。所以我们需要保持循环刷新，
+    直到没有更多的待处理效果。
+    TODO：如果 `flushPassiveEffects` 没有自动执行可能会更好
+    最后刷新同步工作，以避免像这样的分解危险。
+    */
+    flushPassiveEffects();
+  } while (rootWithPendingPassiveEffects !== null);
   // finishedWork ， finishedLanes
    // 获得 root 上的 finishedWork，这个就是前面调度更新的结果
   //  debugger
@@ -94,12 +148,22 @@ function commitRootImpl(root: FiberRoot, renderPriorityLevel: ReactPriorityLevel
 
      // 下一个阶段是“layout”阶段，我们调用副作用方法在host tree被挂载进更容器后。
     // 这个阶段的习惯用法是用于布局，但出于遗留原因，类组件生命周期也会触发
+    /*
+     //commit lifecycles,也就是触发生命周期的 api
+
+          //① 循环 effect 链，针对不同的 fiber 类型，进行effect.destroy()/componentDidMount()/callback/node.focus()等操作
+          //② 指定 ref 的引用
+    
+    */
 
       try {
         recursivelyCommitLayoutEffects(finishedWork, root);
       } catch (error) {
         // captureCommitPhaseErrorOnRoot(finishedWork, finishedWork, error);
       }
+
+
+      requestPaint();
 
 }
 
@@ -474,82 +538,62 @@ export function commitMount(
 let focusedInstanceHandle: null | Fiber = null;
 let shouldFireAfterActiveInstanceBlur: boolean = false;
 
-export function commitBeforeMutationEffects(firstChild: Fiber ) {
-  
-  let fiber: Fiber|null = firstChild;
-  while (fiber !== null) {
-    if (fiber.deletions !== null) {
-      // 从名字看是处理删除项
-      commitBeforeMutationEffectsDeletions(fiber.deletions);
+/*
+commitBeforeMutationEffects 中，会从 firstEffect 开始，通过 nextEffect 不断对 
+effectList 链表进行遍历，若是当前的 fiber 节点有 flags 副作用，则执行 
+commitBeforeMutationEffectOnFiber 节点去对针对 class 组件单独处理。
+*/
+
+function commitBeforeMutationEffects() {
+   // eslint-disable-next-line react-internal/no-production-logging
+  console.log('##&&::','commitBeforeMutationEffects')
+  while (nextEffect !== null) {
+    const current = nextEffect.alternate;
+
+    if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
+      // if ((nextEffect.flags & Deletion) !== NoFlags) {
+      //   if (doesFiberContain(nextEffect, focusedInstanceHandle)) {
+      //     shouldFireAfterActiveInstanceBlur = true;
+      //     beforeActiveInstanceBlur();
+      //   }
+      // } else {
+      //   // TODO: Move this out of the hot path using a dedicated effect tag.
+      //   if (
+      //     nextEffect.tag === SuspenseComponent &&
+      //     isSuspenseBoundaryBeingHidden(current, nextEffect) &&
+      //     doesFiberContain(nextEffect, focusedInstanceHandle)
+      //   ) {
+      //     shouldFireAfterActiveInstanceBlur = true;
+      //     beforeActiveInstanceBlur();
+      //   }
+      // }
     }
 
-    if (fiber.child !== null) { // 递归执行这棵树， 深度优先遍历，从左到右
-      const primarySubtreeFlags = fiber.subtreeFlags & BeforeMutationMask;
-      if (primarySubtreeFlags !== NoFlags) {
-        commitBeforeMutationEffects(fiber.child);
+    const flags = nextEffect.flags;
+    if ((flags & Snapshot) !== NoFlags) {
+      // setCurrentDebugFiberInDEV(nextEffect);
+
+      commitBeforeMutationEffectOnFiber(current, nextEffect);
+
+      // resetCurrentDebugFiberInDEV();
+    }
+    if ((flags & Passive) !== NoFlags) {
+      // If there are passive effects, schedule a callback to flush at
+      // the earliest opportunity.
+      if (!rootDoesHavePassiveEffects) {
+        rootDoesHavePassiveEffects = true;
+        
+        scheduleCallback(NormalSchedulerPriority, () => {
+          flushPassiveEffects();
+          return null;
+        });
       }
     }
-
-   
-    try { // 可以理解为mutate之前的清理工作，包括useEffect的清理等
-      commitBeforeMutationEffectsImpl(fiber);
-    } catch (error) {
-      // captureCommitPhaseError(fiber, fiber.return, error);
-    }
-    
-    fiber = fiber.sibling;
-  }
-}
-// 从名字看是处理删除项，那么这个删除项是从哪里来的呢？？？
-function commitBeforeMutationEffectsDeletions(deletions: Array<Fiber>) {
-  for (let i = 0; i < deletions.length; i++) {
-    const fiber = deletions[i];
-
-    // TODO (effects) It would be nice to avoid calling doesFiberContain()
-    // Maybe we can repurpose one of the subtreeFlags positions for this instead?
-    // Use it to store which part of the tree the focused instance is in?
-    // This assumes we can safely determine that instance during the "render" phase.
-
-    // if (doesFiberContain(fiber, ((focusedInstanceHandle: any): Fiber))) {
-    //   shouldFireAfterActiveInstanceBlur = true;
-    //   beforeActiveInstanceBlur();
-    // }
+    nextEffect = nextEffect.nextEffect;
   }
 }
 
-function commitBeforeMutationEffectsImpl(fiber: Fiber) {
-  // const current = fiber.alternate;
-  const flags = fiber.flags;
 
-  if (!shouldFireAfterActiveInstanceBlur && focusedInstanceHandle !== null) {
-    // Check to see if the focused element was inside of a hidden (Suspense) subtree.
-    // TODO: Move this out of the hot path using a dedicated effect tag.
-    // if (
-    //   fiber.tag === SuspenseComponent &&   
-    //   isSuspenseBoundaryBeingHidden(current, fiber) &&
-    //   doesFiberContain(fiber, focusedInstanceHandle)
-    // ) {
-    //   shouldFireAfterActiveInstanceBlur = true;
-    //   beforeActiveInstanceBlur();
-    // }
-  }
-
-  if ((flags & Snapshot) !== NoFlags) {
-    // setCurrentDebugFiberInDEV(fiber);
-    // commitBeforeMutationEffectOnFiber(current, fiber);
-    // resetCurrentDebugFiberInDEV();
-  }
-
-  if ((flags & Passive) !== NoFlags) {
-    // If there are passive effects, schedule a callback to flush at
-    // the earliest opportunity.
-    if (!rootDoesHavePassiveEffects) {
-      rootDoesHavePassiveEffects = true;
-      flushPassiveEffects();
-      return null;
-    }
-  }
-}
 
 /*
   flushPassiveEffects内部会设置优先级，并执行flushPassiveEffectsImpl
@@ -570,38 +614,87 @@ function flushPassiveEffectsImpl() {
 }
 
 function commitMutationEffects(
-  firstChild: Fiber,
   root: FiberRoot,
   renderPriorityLevel: ReactPriorityLevel,
 ) {
-  let fiber: Fiber|null = firstChild;
-  while (fiber !== null) {
-    const deletions = fiber.deletions;
-    if (deletions !== null) {
-      commitMutationEffectsDeletions(
-        deletions,
-        fiber,
-        root,
-        renderPriorityLevel,
-      );
+  // TODO: Should probably move the bulk of this function to commitWork.
+  // eslint-disable-next-line no-debugger
+  debugger
+  while (nextEffect !== null) {
+    // setCurrentDebugFiberInDEV(nextEffect);
+
+    const flags = nextEffect.flags;
+
+    if (flags & ContentReset) {
+      // commitResetTextContent(nextEffect);
     }
 
-    if (fiber.child !== null) {
-      const mutationFlags = fiber.subtreeFlags & MutationMask;
-      if (mutationFlags !== NoFlags) {
-        commitMutationEffects(fiber.child, root, renderPriorityLevel);
+    if (flags & Ref) {
+      const current = nextEffect.alternate;
+      if (current !== null) {
+        // commitDetachRef(current);
+      }
+      if (enableScopeAPI) {
+        // TODO: This is a temporary solution that allowed us to transition away
+        // from React Flare on www.
+        if (nextEffect.tag === ScopeComponent) {
+          // commitAttachRef(nextEffect);
+        }
       }
     }
 
-  
-    try { // 根据fiber的flag类型进行  更新 或者重置操作， 这一步最后进行了dom挂载也就是dom被
-      // appendChild到了container中了，也就是进行渲染了
-      commitMutationEffectsImpl(fiber, root, renderPriorityLevel);
-    } catch (error) {
-      // captureCommitPhaseError(fiber, fiber.return, error);
+    // The following switch statement is only concerned about placement,
+    // updates, and deletions. To avoid needing to add a case for every possible
+    // bitmap value, we remove the secondary effects from the effect tag and
+    // switch on that value.
+    const primaryFlags = flags & (Placement | Update | Deletion | Hydrating);
+    switch (primaryFlags) {
+      case Placement: {
+        commitPlacement(nextEffect);
+        // Clear the "placement" from effect tag so that we know that this is
+        // inserted, before any life-cycles like componentDidMount gets called.
+        // TODO: findDOMNode doesn't rely on this any more but isMounted does
+        // and isMounted is deprecated anyway so we should be able to kill this.
+        nextEffect.flags &= ~Placement;
+        break;
+      }
+      case PlacementAndUpdate: {
+        // Placement
+        commitPlacement(nextEffect);
+        // Clear the "placement" from effect tag so that we know that this is
+        // inserted, before any life-cycles like componentDidMount gets called.
+        nextEffect.flags &= ~Placement;
+
+        // Update
+        const current = nextEffect.alternate;
+        commitWork(current, nextEffect);
+        break;
+      }
+      case Hydrating: {
+        nextEffect.flags &= ~Hydrating;
+        break;
+      }
+      case HydratingAndUpdate: {
+        nextEffect.flags &= ~Hydrating;
+
+        // Update
+        const current = nextEffect.alternate;
+        commitWork(current, nextEffect);
+        break;
+      }
+      case Update: {
+        const current = nextEffect.alternate;
+        commitWork(current, nextEffect);
+        break;
+      }
+      case Deletion: {
+        // commitDeletion(root, nextEffect, renderPriorityLevel);
+        break;
+      }
     }
-    
-    fiber = fiber.sibling;
+
+    // resetCurrentDebugFiberInDEV();
+    nextEffect = nextEffect.nextEffect;
   }
 }
 
@@ -909,9 +1002,8 @@ function insertOrAppendPlacementNode(
   }
 }
 
-// mutation: 突变 变动
-function commitWork(current: Fiber | null, finishedWork: Fiber): void {
-   //
-   console.log('commitWork',current, finishedWork)
-}
 
+
+export function resolveDefaultProps() {
+  //
+}
