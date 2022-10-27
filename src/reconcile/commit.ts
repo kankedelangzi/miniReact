@@ -604,10 +604,6 @@ export function renderRootSync (root: FiberRoot, lanes: Lanes) {
   Cxt.executionContext = prevExecutionContext;
   popDispatcher(prevDispatcher);
 
- 
-
- 
-
   // if (enableSchedulingProfiler) {
   //   markRenderStopped();
   // }

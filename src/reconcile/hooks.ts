@@ -88,7 +88,9 @@ export type Hook = {
 };
 
 let renderLanes: Lanes = NoLanes;
+// 这是Fiber与hook进行绑定的桥梁从FunctionComponent诸如进来，在未来的hook执行中作为宿主存在
 let currentlyRenderingFiber: Fiber|null = null
+
 let didScheduleRenderPhaseUpdate: boolean = false;
 let didScheduleRenderPhaseUpdateDuringThisPass: boolean = false;
 let currentHook: Hook | null = null;
@@ -668,26 +670,21 @@ function updateWorkInProgressHook(): Hook {
 
 
 /*************useEffect相关****************/
+/*
+
+
+*/
 
 function mountEffect(
   create: () => (() => void) | void,
   deps: Array<mixed> | void | null,
 ): void {
-
-  // if (
-  //   __DEV__ &&
-  //   enableStrictEffects &&
-  //   (currentlyRenderingFiber.mode & StrictEffectsMode) !== NoMode
-  // ) {
-  //  // dev
-  // } else {
     return mountEffectImpl(
       PassiveEffect | PassiveStaticEffect,
       HookPassive,
       create,
       deps,
     );
-  // }
 }
 
 function mountEffectImpl(fiberFlags: number, hookFlags:number, create:  () => (() => void) | void, deps: Array<mixed> | void | null): void {

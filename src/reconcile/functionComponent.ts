@@ -186,3 +186,41 @@ export function mountIndeterminateComponent(
     return workInProgress.child;
   }
 }
+
+export function updateFunctionComponent(
+  current: Fiber|null,
+  workInProgress: Fiber,
+  Component: any,
+  nextProps: any,
+  renderLanes: any,
+) {
+
+  let context;
+  // if (!disableLegacyContext) {
+  //   const unmaskedContext = getUnmaskedContext(workInProgress, Component, true);
+  //   context = getMaskedContext(workInProgress, unmaskedContext);
+  // }
+
+  let nextChildren;
+  prepareToReadContext(workInProgress, renderLanes);
+ 
+  nextChildren = renderWithHooks(
+      current,
+      workInProgress,
+      Component,
+      nextProps,
+      context,
+      renderLanes,
+  );
+  
+
+  // if (current !== null && !didReceiveUpdate) {
+  //   bailoutHooks(current, workInProgress, renderLanes);
+  //   return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
+  // }
+
+  // React DevTools reads this flag.
+  workInProgress.flags |= PerformedWork;
+  reconcileChildren(current, workInProgress, nextChildren, renderLanes);
+  return workInProgress.child;
+}
