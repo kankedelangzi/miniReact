@@ -298,3 +298,19 @@ function finishClassComponent(
 
   return workInProgress.child;
 }
+
+/*
+它里面根据 fiber 的 tag 属性，主要是对 ClassComponent 组件进行处理，
+更新 ClassComponent 实例上的state、props 等，以及执行 
+getSnapshotBeforeUpdate 生命周期函数:
+
+*/
+export function commitBeforeMutationLifeCycles(
+  current: Fiber | null,
+  finishedWork: Fiber,
+): void {
+  console.log('commitBeforeMutationLifeCycles', "未实现")
+  switch (finishedWork.tag) {
+  
+  }
+}

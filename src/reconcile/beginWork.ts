@@ -5,19 +5,20 @@ import { Fiber, Lanes, Update, UpdateQueue,
    IndeterminateComponent,Profiler,
    SuspenseComponent,SuspenseListComponent,
    OffscreenComponent,LegacyHiddenComponent,
-   CacheComponent,Cache,
+   Cache,
    ForceUpdateForLegacySuspense,
    NoFlags,ReactContext,
    ClassComponent,HostPortal,ContextProvider,
-  TypeOfMode,ChildDeletion, HostText,HostComponent,
-  ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot, mixed, FunctionComponent, Callback } from '../type/index'
+  ChildDeletion, HostText,HostComponent,
+  ContentReset, REACT_ELEMENT_TYPE, IReactElement, HostRoot, mixed, FunctionComponent,
+   Callback, MemoComponent, SimpleMemoComponent } from '../type/index'
 import { shouldSetTextContent } from '../reactDom/tools'
 import {  cloneChildFibers, createFiberFromElement, createFiberFromText } from '../reactDom/create'
 import { createCursor, push, pop, rootInstanceStackCursor, NoContextT, NO_CONTEXT } from './fiberStack'
 import { } from './tools'
-import { Cxt, getRootHostContext, hasContextChanged as hasLegacyContextChanged } from '../reactDom/context'
+import {  getRootHostContext, hasContextChanged as hasLegacyContextChanged } from '../reactDom/context'
 import { createChild } from '../reactDom/create'
-import { mountIndeterminateComponent, prepareToReadContext} from './functionComponent'
+import { mountIndeterminateComponent, updateFunctionComponent} from './functionComponent'
 import { canHydrateInstance, canHydrateTextInstance, getNextHydratableSibling, getFirstHydratableChild } from '../reactDom/instance'
 import { createWorkInProgress, markSkippedUpdateLanes } from './commit'
 import { includesSomeLane, isSubsetOfLanes, mergeLanes, NoLane, NoLanes } from "../reactDom/lane";
@@ -29,7 +30,7 @@ import { updateClassComponent } from './classComponent'
 
 const valueCursor: StackCursor<mixed> = createCursor(null);
 const isArray = Array.isArray;
-let pooledCache: Cache | null = null;
+
 let didReceiveUpdate: boolean = false;
 export const disableLegacyContext = false;
 let hydrationParentFiber: null | Fiber = null;
@@ -284,13 +285,7 @@ export function beginWork(
           // return updateOffscreenComponent(current, workInProgress, renderLanes);
           break;
         }
-        case CacheComponent: {
-          // if (enableCache) {
-          //   const cache: Cache = current.memoizedState.cache;
-          //   pushCacheProvider(workInProgress, cache);
-          // }
-          break;
-        }
+        
       }
       //，若节点的优先级不满足要求，说明它不用更新，会调用bailoutOnAlreadyFinishedWork函数，
       // 去复用current节点作为新的workInProgress树的节点。
@@ -335,7 +330,7 @@ export function beginWork(
         const resolvedProps =
           workInProgress.elementType === Component
             ? unresolvedProps
-            : resolveDefaultProps(Component, unresolvedProps);
+            : resolveDefaultProps();
         return updateClassComponent(
           current,
           workInProgress,
@@ -346,21 +341,27 @@ export function beginWork(
       }
     case HostText:
       return updateHostText(current, workInProgress);
-    // case FunctionComponent: {
-    //   const Component = workInProgress.type;
-    //   const unresolvedProps = workInProgress.pendingProps;
-    //   const resolvedProps =
-    //     workInProgress.elementType === Component
-    //       ? unresolvedProps
-    //       : resolveDefaultProps(Component, unresolvedProps);
-    //   return updateFunctionComponent(
-    //     current,
-    //     workInProgress,
-    //     Component,
-    //     resolvedProps,
-    //     renderLanes,
-    //   );
-    // }
+    case FunctionComponent: {
+      const Component = workInProgress.type;
+      const unresolvedProps = workInProgress.pendingProps;
+      const resolvedProps =
+        workInProgress.elementType === Component
+          ? unresolvedProps
+          : resolveDefaultProps();
+      return updateFunctionComponent(
+        current,
+        workInProgress,
+        Component,
+        resolvedProps,
+        renderLanes,
+      );
+    }
+    case MemoComponent: {
+      break;
+    }
+    case SimpleMemoComponent: {
+      break;
+    }
     default:
       console.log('%c beginWork 这种类型的tag没有处理逻辑',  
       'color:red;background:yellow;', workInProgress.tag)
@@ -454,7 +455,7 @@ export function pushRootCachePool(root: FiberRoot) {
   // from `root.pooledCache`. If it's currently `null`, we will lazily
   // initialize it the first type it's requested. However, we only mutate
   // the root itself during the complete/unwind phase of the HostRoot.
-  pooledCache = root.pooledCache;
+  // pooledCache = root.pooledCache;
 }
 
 export function pushCacheProvider(workInProgress: Fiber, cache: Cache) {
